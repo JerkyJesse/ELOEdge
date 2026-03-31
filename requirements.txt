@@ -28,8 +28,6 @@ networkx>=3.0             # PageRank / graph analysis
 torch>=2.0                # MLP + LSTM (install via: pip install torch --index-url https://download.pytorch.org/whl/cpu)
 
 # Alternative data
-praw>=7.7                 # Reddit API (sentiment)
-vaderSentiment>=3.3       # Sentiment analysis
 
 # Optional (enhanced features)
 # nolds                   # Lyapunov exponents, Hurst exponent (chaos theory)

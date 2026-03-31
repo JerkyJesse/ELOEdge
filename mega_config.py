@@ -56,7 +56,6 @@ MODEL_REGISTRY = {
 
     # Data enrichment models
     "weather":          {"default": False, "tier": 6, "desc": "Weather impact (temperature, wind)"},
-    "sentiment":        {"default": False, "tier": 6, "desc": "Reddit sentiment (VADER NLP)"},
     "odds":             {"default": False, "tier": 6, "desc": "Market odds / CLV tracking"},
 }
 

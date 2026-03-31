@@ -61,11 +61,6 @@ try:
 except ImportError:
     HAS_ODDS = False
 
-try:
-    from sentiment import fetch_all_team_sentiment, get_sentiment_features
-    HAS_SENTIMENT = True
-except ImportError:
-    HAS_SENTIMENT = False
 
 try:
     from weather import get_game_weather, compute_weather_impact
@@ -305,10 +300,9 @@ def run_mega_backtest(csv_file, sport="nfl", elo_model_class=None,
         if _on("mean_reversion"):
             mean_revert = MeanReversionDetector()
 
-    # 11. Tier 6: Data enrichment (odds, sentiment, weather)
+    # 11. Tier 6: Data enrichment (odds, weather)
     # These are fetched ONCE before the loop (they're live data, not historical per-game)
     odds_data = None
-    sentiment_data = None
     if _on("odds") and HAS_ODDS:
         try:
             odds_data = get_today_odds(sport)
@@ -316,14 +310,6 @@ def run_mega_backtest(csv_file, sport="nfl", elo_model_class=None,
                 print("  Loaded odds for %d games" % len(odds_data))
         except Exception as e:
             logging.debug("Odds fetch failed: %s", e)
-
-    if _on("sentiment") and HAS_SENTIMENT:
-        try:
-            sentiment_data = fetch_all_team_sentiment(sport)
-            if verbose and sentiment_data:
-                print("  Loaded sentiment for %d teams" % len(sentiment_data))
-        except Exception as e:
-            logging.debug("Sentiment fetch failed: %s", e)
 
     # 12. Meta-learner (use simpler model for small-sample sports)
     meta_type = mp.get("meta_model", None)
@@ -470,12 +456,7 @@ def run_mega_backtest(csv_file, sport="nfl", elo_model_class=None,
                 elo_p = feature_row.get("elo_prob", 0.5)
                 feature_row["clv_signal"] = elo_p - game_odds.get("consensus_home_prob", 0.5)
 
-        # 20. Data enrichment: Sentiment
-        if sentiment_data and _on("sentiment") and HAS_SENTIMENT:
-            sent_feats = get_sentiment_features(home, away, sentiment_data)
-            feature_row.update(sent_feats)
-
-        # 21. Data enrichment: Weather
+        # 20. Data enrichment: Weather
         if _on("weather") and HAS_WEATHER:
             try:
                 weather_data = get_game_weather(home, sport, game_date)
@@ -847,8 +828,6 @@ def run_mega_backtest(csv_file, sport="nfl", elo_model_class=None,
         results["models_used"].append("mean_reversion")
     if odds_data and _on("odds"):
         results["models_used"].append("odds")
-    if sentiment_data and _on("sentiment"):
-        results["models_used"].append("sentiment")
     if _on("weather") and HAS_WEATHER:
         results["models_used"].append("weather")
     if meta._fitted:

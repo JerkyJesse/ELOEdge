@@ -48,7 +48,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 try:
     from odds_tracker import show_odds_table, get_today_odds, find_game_odds
     from weather import show_weather_report, get_game_weather, compute_weather_impact
-    from sentiment import show_sentiment_report, fetch_all_team_sentiment, get_sentiment_features
+    pass  # sentiment module removed
     HAS_MEGA_DATA = True
 except ImportError as _e:
     HAS_MEGA_DATA = False
@@ -407,11 +407,7 @@ def dispatch(cmd, model, csv_file):
         else:
             print(cerr("Advanced stats module not available. pip install nfl_data_py"))
     elif cmd == "sentiment":
-        if HAS_MEGA_DATA:
-            print(cdim("  Fetching Reddit sentiment (requires Reddit API credentials)..."))
-            show_sentiment_report("nfl")
-        else:
-            print(cerr("Sentiment module not available."))
+        print(cerr("Sentiment module has been removed."))
     elif cmd == "officials":
         if HAS_ADVANCED_STATS:
             print(cdim("  Downloading officials data..."))

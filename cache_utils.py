@@ -71,7 +71,6 @@ def smart_cache_stale(filepath, sport, data_type="games",
             'injuries' - injury reports (stale every 4h during season)
             'odds' - betting odds (stale every 15min on game days)
             'weather' - weather forecasts (stale every 2h on game days)
-            'sentiment' - fan sentiment (stale every 4h)
             'advanced' - advanced stats (stale every 24h during season)
         min_age_hours: override minimum age before considering stale
         max_age_hours: override maximum age (always stale after this)

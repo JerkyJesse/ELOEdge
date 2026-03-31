@@ -32,7 +32,6 @@ BASE_MODEL_FEATURES = [
 CONTEXT_FEATURES = [
     "market_implied_prob", "line_movement",            # Odds
     "weather_scoring_impact", "weather_unpredictability",  # Weather
-    "sentiment_diff", "sentiment_confidence",          # Sentiment
     "net_epa_diff", "cpoe_diff",                       # Advanced stats (NFL)
     "woba_diff", "era_diff",                           # Advanced stats (MLB)
     "home_sos_pagerank", "sos_diff",                   # SOS

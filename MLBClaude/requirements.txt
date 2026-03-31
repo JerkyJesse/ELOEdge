@@ -15,5 +15,3 @@ lightgbm>=4.0
 catboost>=1.2
 networkx>=3.0
 # Phase 1: Alternative data
-praw>=7.7
-vaderSentiment>=3.3

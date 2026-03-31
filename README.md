@@ -1,6 +1,6 @@
 # Sports Prediction Mega-Ensemble
 
-Four-sport prediction system (NFL, MLB, NBA, NHL) combining **32 independent prediction models** into a single meta-learned ensemble. Every prediction method from Elo ratings to neural networks to chaos theory, all running together.
+Four-sport prediction system (NFL, MLB, NBA, NHL) combining **31 independent prediction models** into a single meta-learned ensemble. Every prediction method from Elo ratings to neural networks to chaos theory, all running together.
 
 ## Quick Start
 
@@ -20,7 +20,7 @@ First run auto-downloads game data, player stats, and injury reports from free p
 
 ---
 
-## The 32 Models
+## The 31 Models
 
 Every historical prediction method, converted to sports:
 
@@ -56,7 +56,6 @@ Every historical prediction method, converted to sports:
 | | Exponential Smoothing | Holt | 1957 |
 | | Mean Reversion (Bollinger) | Bollinger | 1983 |
 | **Data** | Weather Impact | Open-Meteo | - |
-| | Reddit Sentiment (VADER) | Hutto & Gilbert | 2014 |
 | | Market Odds / CLV | The Odds API | - |
 
 ---
@@ -101,7 +100,6 @@ The system uses an **Elo-anchored bounded adjustment**: the Elo probability is t
 | `refresh` | Re-download all data (games, players, injuries), rebuild model |
 | `odds` | Show today's odds from 50+ bookmakers (needs API key) |
 | `weather` | Weather impact report for a game venue |
-| `sentiment` | Reddit fan sentiment analysis by team (needs API credentials) |
 | `advstats` | Advanced analytics rankings (NFL: EPA/CPOE, also: `epa`) |
 | `statcast` | Statcast rankings (MLB: xwOBA/xERA, also: `advstats`) |
 | `officials` | Referee tendency analysis (NFL only) |
@@ -305,29 +303,6 @@ Objective: `LogLoss * 8 + Brier * 40` (lower is better, same as Elo optimizer)
 
 ## API Setup (Optional Features)
 
-### Reddit API (for `sentiment` command)
-
-Free API credentials for Reddit sentiment analysis:
-
-1. Go to https://www.reddit.com/prefs/apps
-2. Click "Create App" or "Create Another App"
-3. Select "script" as the app type
-4. Set redirect URI to `http://localhost:8080`
-5. Note your `client_id` (under the app name) and `client_secret`
-6. Set environment variables:
-
-```bash
-# Windows
-set REDDIT_CLIENT_ID=your_client_id
-set REDDIT_CLIENT_SECRET=your_client_secret
-set REDDIT_USER_AGENT=sports-predictor/1.0
-
-# Mac/Linux
-export REDDIT_CLIENT_ID=your_client_id
-export REDDIT_CLIENT_SECRET=your_client_secret
-export REDDIT_USER_AGENT=sports-predictor/1.0
-```
-
 ### The Odds API (for `odds` command)
 
 Free tier: 500 requests/month (enough for daily use):
@@ -374,7 +349,6 @@ export ODDS_API_KEY=your_api_key
 | nfl_data_py | EPA/play, CPOE, success rate | NFL | No |
 | pybaseball | Statcast xwOBA, xERA, barrel rate | MLB | No |
 | Open-Meteo | Weather forecasts (62 venues) | NFL, MLB | No |
-| Reddit API | Fan sentiment (VADER NLP) | All | Free |
 | The Odds API | 50+ bookmaker odds, CLV | All | Free (500/mo) |
 
 ---
@@ -416,7 +390,6 @@ Claude/
 |-- classic_models.py            # SRS, Colley, Log5, PythagenPat, ExpSmoothing, MeanReversion
 |-- odds_tracker.py              # Bookmaker odds + CLV tracking
 |-- weather.py                   # Weather impact (62 venues)
-|-- sentiment.py                 # Reddit sentiment (VADER)
 |
 |-- NFLClaude/                   # NFL-specific
 |   |-- main.py                  # CLI entry point
