@@ -54,6 +54,25 @@ try:
 except ImportError:
     HAS_CLASSIC_MODELS = False
 
+# Try importing data enrichment models (Tier 6)
+try:
+    from odds_tracker import get_today_odds, find_game_odds
+    HAS_ODDS = True
+except ImportError:
+    HAS_ODDS = False
+
+try:
+    from sentiment import fetch_all_team_sentiment, get_sentiment_features
+    HAS_SENTIMENT = True
+except ImportError:
+    HAS_SENTIMENT = False
+
+try:
+    from weather import get_game_weather, compute_weather_impact
+    HAS_WEATHER = True
+except ImportError:
+    HAS_WEATHER = False
+
 
 # Sport-specific defaults
 SPORT_DEFAULTS = {
@@ -286,7 +305,27 @@ def run_mega_backtest(csv_file, sport="nfl", elo_model_class=None,
         if _on("mean_reversion"):
             mean_revert = MeanReversionDetector()
 
-    # 10. Meta-learner (use simpler model for small-sample sports)
+    # 11. Tier 6: Data enrichment (odds, sentiment, weather)
+    # These are fetched ONCE before the loop (they're live data, not historical per-game)
+    odds_data = None
+    sentiment_data = None
+    if _on("odds") and HAS_ODDS:
+        try:
+            odds_data = get_today_odds(sport)
+            if verbose and odds_data:
+                print("  Loaded odds for %d games" % len(odds_data))
+        except Exception as e:
+            logging.debug("Odds fetch failed: %s", e)
+
+    if _on("sentiment") and HAS_SENTIMENT:
+        try:
+            sentiment_data = fetch_all_team_sentiment(sport)
+            if verbose and sentiment_data:
+                print("  Loaded sentiment for %d teams" % len(sentiment_data))
+        except Exception as e:
+            logging.debug("Sentiment fetch failed: %s", e)
+
+    # 12. Meta-learner (use simpler model for small-sample sports)
     meta_type = mp.get("meta_model", None)
     if meta_type is None:
         meta_type = "ridge" if sport in ("nfl",) else "xgboost"
@@ -421,7 +460,35 @@ def run_mega_backtest(csv_file, sport="nfl", elo_model_class=None,
         if mean_revert:
             feature_row.update(mean_revert.get_features(home, away))
 
-        # 14. Rolling team features
+        # 19. Data enrichment: Odds
+        if odds_data and _on("odds"):
+            game_odds = find_game_odds(odds_data, home, away)
+            if game_odds:
+                feature_row["market_implied_prob"] = game_odds.get("consensus_home_prob", 0.5)
+                feature_row["sharp_implied_prob"] = game_odds.get("sharp_home_prob", 0.5)
+                feature_row["line_movement"] = game_odds.get("line_movement", 0)
+                elo_p = feature_row.get("elo_prob", 0.5)
+                feature_row["clv_signal"] = elo_p - game_odds.get("consensus_home_prob", 0.5)
+
+        # 20. Data enrichment: Sentiment
+        if sentiment_data and _on("sentiment") and HAS_SENTIMENT:
+            sent_feats = get_sentiment_features(home, away, sentiment_data)
+            feature_row.update(sent_feats)
+
+        # 21. Data enrichment: Weather
+        if _on("weather") and HAS_WEATHER:
+            try:
+                weather_data = get_game_weather(home, sport, game_date)
+                if weather_data and not weather_data.get("is_dome"):
+                    w_impact = compute_weather_impact(weather_data, sport)
+                    feature_row["weather_scoring_impact"] = w_impact.get("scoring_impact", 0)
+                    feature_row["weather_passing_impact"] = w_impact.get("passing_impact", 0)
+                    feature_row["weather_home_adv_mod"] = w_impact.get("home_advantage_mod", 0)
+                    feature_row["weather_unpredictability"] = w_impact.get("unpredictability", 0)
+            except Exception:
+                pass
+
+        # 22. Rolling team features
         home_rolling = _rolling_features(
             team_margins[home], team_scores_for[home],
             team_scores_against[home], team_results[home], window
@@ -778,6 +845,12 @@ def run_mega_backtest(csv_file, sport="nfl", elo_model_class=None,
         results["models_used"].append("exp_smoothing")
     if mean_revert:
         results["models_used"].append("mean_reversion")
+    if odds_data and _on("odds"):
+        results["models_used"].append("odds")
+    if sentiment_data and _on("sentiment"):
+        results["models_used"].append("sentiment")
+    if _on("weather") and HAS_WEATHER:
+        results["models_used"].append("weather")
     if meta._fitted:
         results["models_used"].append("meta_learner")
 

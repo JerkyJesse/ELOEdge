@@ -65,6 +65,17 @@ try:
 except ImportError:
     HAS_MEGA_CONFIG = False
 
+import sys
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+try:
+    from odds_tracker import show_odds_table, get_today_odds, find_game_odds
+    from weather import show_weather_report, get_game_weather, compute_weather_impact
+    from sentiment import show_sentiment_report, fetch_all_team_sentiment, get_sentiment_features
+    HAS_MEGA_DATA = True
+except ImportError as _e:
+    HAS_MEGA_DATA = False
+    logging.debug("Mega-ensemble data modules not available: %s", _e)
+
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 
 
@@ -361,6 +372,29 @@ def dispatch(cmd, model, csv_file):
                 print(cerr("  Unknown model: %s" % model_name))
         else:
             print(cerr("Mega config not available."))
+    # ── Odds / Weather / Sentiment commands ─────────────────────────────
+    elif cmd == "odds":
+        if HAS_MEGA_DATA:
+            show_odds_table("nba")
+        else:
+            print(cerr("Odds module not available. pip install requests"))
+    elif cmd == "weather":
+        if HAS_MEGA_DATA:
+            team = input(chi("  Home team: ")).strip()
+            if team:
+                found = model.find_team(team)
+                if found:
+                    show_weather_report(found, "nba")
+                else:
+                    print(cerr("  Team not found: %s" % team))
+        else:
+            print(cerr("Weather module not available."))
+    elif cmd == "sentiment":
+        if HAS_MEGA_DATA:
+            print(cdim("  Fetching Reddit sentiment (requires Reddit API credentials)..."))
+            show_sentiment_report("nba")
+        else:
+            print(cerr("Sentiment module not available."))
     elif cmd.startswith("help"):
         parts = cmd.split(None, 1)
         show_help(parts[1] if len(parts) > 1 else "")
