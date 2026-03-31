@@ -15,6 +15,7 @@ import math
 import time
 from collections import defaultdict
 from datetime import datetime
+from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
 import pandas as pd
@@ -536,33 +537,31 @@ def run_mega_backtest(csv_file, sport="nfl", elo_model_class=None,
             y = np.array(all_labels, dtype=np.float32)
             X = np.nan_to_num(X, nan=0.0, posinf=1.0, neginf=-1.0)
 
-            # Train LightGBM
+            # Train all ML models in parallel threads
+            def _train_model(model_obj, name):
+                try:
+                    model_obj.train(X, y, feat_names)
+                except Exception as e:
+                    logging.debug("%s training failed: %s", name, e)
+
+            trainable = []
             if lgbm:
-                try:
-                    lgbm.train(X, y, feat_names)
-                except Exception as e:
-                    logging.debug("LightGBM training failed: %s", e)
-
-            # Train CatBoost
+                trainable.append((lgbm, "LightGBM"))
             if catboost_m:
-                try:
-                    catboost_m.train(X, y, feat_names)
-                except Exception as e:
-                    logging.debug("CatBoost training failed: %s", e)
-
-            # Train Random Forest
+                trainable.append((catboost_m, "CatBoost"))
             if random_forest:
-                try:
-                    random_forest.train(X, y, feat_names)
-                except Exception as e:
-                    logging.debug("Random Forest training failed: %s", e)
-
-            # Train MLP
+                trainable.append((random_forest, "RandomForest"))
             if mlp and HAS_TORCH:
-                try:
-                    mlp.train(X, y, feat_names)
-                except Exception as e:
-                    logging.debug("MLP training failed: %s", e)
+                trainable.append((mlp, "MLP"))
+
+            if len(trainable) > 1:
+                with ThreadPoolExecutor(max_workers=min(4, len(trainable))) as pool:
+                    futures = [pool.submit(_train_model, m, n) for m, n in trainable]
+                    for f in futures:
+                        f.result()  # Wait for all to complete
+            else:
+                for m, n in trainable:
+                    _train_model(m, n)
 
             # Add GBM/MLP out-of-fold predictions for meta-learner
             # Use leave-last-chunk-out to avoid leakage:

@@ -20,8 +20,18 @@ try:
     import torch.optim as optim
     from torch.utils.data import DataLoader, TensorDataset
     HAS_TORCH = True
+    # Auto-detect GPU
+    if torch.cuda.is_available():
+        DEVICE = torch.device("cuda")
+        GPU_NAME = torch.cuda.get_device_name(0)
+        logging.info("GPU detected: %s", GPU_NAME)
+    else:
+        DEVICE = torch.device("cpu")
+        GPU_NAME = None
 except (ImportError, OSError):
     HAS_TORCH = False
+    DEVICE = None
+    GPU_NAME = None
     logging.debug("PyTorch not available. Neural network models disabled.")
     # Stub so class definitions don't crash
     class _ModuleStub:
@@ -94,13 +104,14 @@ class MLPPredictor:
         self.feature_names = feature_names or [f"f{i}" for i in range(X.shape[1])]
         X_norm = self._normalize(X)
 
-        X_tensor = torch.FloatTensor(X_norm)
-        y_tensor = torch.FloatTensor(y)
+        dev = DEVICE or torch.device("cpu")
+        X_tensor = torch.FloatTensor(X_norm).to(dev)
+        y_tensor = torch.FloatTensor(y).to(dev)
 
         dataset = TensorDataset(X_tensor, y_tensor)
         loader = DataLoader(dataset, batch_size=self.batch_size, shuffle=True)
 
-        self.model = MLPNet(X.shape[1], self.hidden_dims)
+        self.model = MLPNet(X.shape[1], self.hidden_dims).to(dev)
         optimizer = optim.Adam(self.model.parameters(), lr=self.lr, weight_decay=1e-4)
         criterion = nn.BCELoss()
 
@@ -111,6 +122,7 @@ class MLPPredictor:
         for epoch in range(self.epochs):
             epoch_loss = 0.0
             for X_batch, y_batch in loader:
+                X_batch, y_batch = X_batch.to(dev), y_batch.to(dev)
                 optimizer.zero_grad()
                 pred = self.model(X_batch)
                 loss = criterion(pred, y_batch)

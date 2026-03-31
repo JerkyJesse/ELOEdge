@@ -21,6 +21,7 @@ import logging
 from datetime import datetime
 from itertools import product
 from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import numpy as np
 
@@ -474,6 +475,129 @@ def run_mega_optimize(csv_file, sport="nfl", elo_model_class=None,
                    stability_std / stability_mean * 100 if stability_mean > 0 else 0))
             print()
 
+    # ══════════════════════════════════════════════════════════════
+    # Phase 6: Genetic algorithm (scipy differential evolution)
+    # ══════════════════════════════════════════════════════════════
+    if 6 in phases:
+        if verbose:
+            print("  Phase 6: Genetic algorithm (differential evolution)")
+            print("  " + "-" * 50)
+
+        # Build bounds for continuous/integer params
+        de_params = []
+        de_bounds = []
+        for param, spec in MEGA_PARAM_SPACE.items():
+            if spec["type"] in ("float", "int") and spec["phase"] <= 3:
+                values = _get_param_values(param, sport)
+                if values and len(values) >= 2:
+                    lo, hi = min(values), max(values)
+                    de_params.append(param)
+                    de_bounds.append((lo, hi))
+
+        if de_params:
+            def _de_objective(x):
+                params = dict(best_params)
+                for i, param_name in enumerate(de_params):
+                    spec = MEGA_PARAM_SPACE[param_name]
+                    val = x[i]
+                    if spec["type"] == "int":
+                        val = int(round(val))
+                    else:
+                        val = round(val, 4)
+                    params[param_name] = val
+                obj, _ = _eval(params, "P6-DE")
+                return obj
+
+            try:
+                from scipy.optimize import differential_evolution
+                de_result = differential_evolution(
+                    _de_objective, de_bounds,
+                    maxiter=15, popsize=8, tol=0.001,
+                    seed=42, disp=False,
+                )
+                if de_result.fun < best_obj:
+                    # Reconstruct best params
+                    for i, param_name in enumerate(de_params):
+                        spec = MEGA_PARAM_SPACE[param_name]
+                        val = de_result.x[i]
+                        if spec["type"] == "int":
+                            val = int(round(val))
+                        else:
+                            val = round(val, 4)
+                        best_params[param_name] = val
+                    best_obj = de_result.fun
+                    if verbose:
+                        print("    >>> DE found new best: obj=%.4f <<<" % best_obj)
+            except ImportError:
+                if verbose:
+                    print("    scipy not available, skipping DE")
+
+        if verbose:
+            print()
+            print("    Phase 6 complete. Best obj=%.4f" % best_obj)
+            print()
+
+        _save_settings(sport, sport_dir, best_params)
+
+    # ══════════════════════════════════════════════════════════════
+    # Phase 7: Super-optimize (exhaustive fine-grain on top params)
+    # ══════════════════════════════════════════════════════════════
+    if 7 in phases:
+        if verbose:
+            print("  Phase 7: Super-optimize (fine-grain around best)")
+            print("  " + "-" * 50)
+
+        # For each top-importance param, do a fine sweep around best value
+        key_params = ["max_adj", "kalman_process_noise", "kalman_measurement_noise",
+                      "network_decay", "momentum_friction", "hmm_states"]
+
+        for param in key_params:
+            if param not in MEGA_PARAM_SPACE:
+                continue
+            spec = MEGA_PARAM_SPACE[param]
+            current = best_params.get(param)
+            if current is None:
+                continue
+
+            # Generate fine-grain values around current best
+            values = _get_param_values(param, sport)
+            if not values:
+                continue
+
+            lo, hi = min(values), max(values)
+            if spec["type"] == "int":
+                fine_vals = sorted(set([max(int(lo), current - 1), current,
+                                        min(int(hi), current + 1)]))
+            else:
+                step = (hi - lo) / 20
+                fine_vals = [round(current + i * step, 4) for i in range(-3, 4)]
+                fine_vals = [v for v in fine_vals if lo <= v <= hi]
+
+            param_best = best_obj
+            param_best_val = current
+
+            for val in fine_vals:
+                params = dict(best_params)
+                params[param] = val
+                obj, result = _eval(params, f"P7-{param}")
+                if obj < param_best:
+                    param_best = obj
+                    param_best_val = val
+
+            if param_best_val != current:
+                best_params[param] = param_best_val
+                best_obj = param_best
+                if verbose:
+                    print("    %s: %s -> %s (obj=%.4f)" %
+                          (param, current, param_best_val, param_best))
+
+        if verbose:
+            print()
+            print("    Phase 7 complete. Best obj=%.4f" % best_obj)
+            print()
+
+        _save_settings(sport, sport_dir, best_params)
+
     # ── Final results ─────────────────────────────────────────────
     elapsed = time.time() - start_time
     best_result_final = None
@@ -530,9 +654,9 @@ def run_quick_optimize(csv_file, sport="nfl", elo_model_class=None,
 
 def run_deep_optimize(csv_file, sport="nfl", elo_model_class=None,
                       elo_settings=None, player_df=None):
-    """Deep optimization: All 5 phases, no shortcuts."""
+    """Deep optimization: All 7 phases, no shortcuts."""
     return run_mega_optimize(csv_file, sport, elo_model_class, elo_settings,
-                             player_df, phases=[1, 2, 3, 4, 5])
+                             player_df, phases=[1, 2, 3, 4, 5, 6, 7])
 
 
 def run_single_model_optimize(csv_file, sport="nfl", elo_model_class=None,
