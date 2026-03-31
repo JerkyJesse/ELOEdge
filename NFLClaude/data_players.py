@@ -21,7 +21,7 @@ ESPN_STATS_URL = ("https://site.web.api.espn.com/apis/common/v3/sports/football/
 
 def download_player_stats(csv_file=PLAYER_STATS_FILE):
     """Download NFL player stats from ESPN byathlete API."""
-    if not is_cache_stale(csv_file):
+    if not is_cache_stale(csv_file, data_type="players"):
         logging.info("Using cached player stats %s", csv_file)
         return csv_file
     logging.info("Downloading NFL player stats via ESPN stats API...")
@@ -79,7 +79,7 @@ def download_player_stats(csv_file=PLAYER_STATS_FILE):
 
 def download_advanced_stats(csv_file=ADVANCED_STATS_FILE):
     """Placeholder for advanced stats -- NFL doesn't have a clean public advanced stats API."""
-    if not is_cache_stale(csv_file):
+    if not is_cache_stale(csv_file, data_type="players"):
         logging.info("Using cached advanced stats %s", csv_file)
         return csv_file
     # For NFL, advanced stats are limited from public APIs

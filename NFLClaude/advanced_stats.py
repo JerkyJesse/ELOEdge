@@ -20,6 +20,11 @@ OFFICIALS_FILE = "nfl_officials.csv"
 
 
 def _is_cache_stale(filepath, max_hours=CACHE_MAX_AGE_HOURS):
+    try:
+        from cache_utils import smart_cache_stale
+        return smart_cache_stale(filepath, "nfl", "advanced", max_age_hours=max_hours)
+    except ImportError:
+        pass
     if not os.path.exists(filepath):
         return True
     age = datetime.now().timestamp() - os.path.getmtime(filepath)

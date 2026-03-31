@@ -19,6 +19,13 @@ CACHE_MAX_AGE_HOURS = 12
 
 
 def _is_cache_stale(filepath, max_hours=CACHE_MAX_AGE_HOURS):
+    try:
+        import sys
+        sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+        from cache_utils import smart_cache_stale
+        return smart_cache_stale(filepath, "mlb", "advanced", max_age_hours=max_hours)
+    except ImportError:
+        pass
     if not os.path.exists(filepath):
         return True
     size = os.path.getsize(filepath)

@@ -1,9 +1,17 @@
 """Constants, team abbreviations, settings I/O, and shared helpers."""
 
 import os
+import sys
 import json
 import logging
 from datetime import datetime
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+try:
+    from cache_utils import smart_cache_stale, get_cache_age_str
+    HAS_SMART_CACHE = True
+except ImportError:
+    HAS_SMART_CACHE = False
 
 SETTINGS_FILE          = "nfl_elo_settings.json"
 PREDICTS_FILE          = "predicts_lots.csv"
@@ -77,7 +85,11 @@ def current_timestamp():
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 
-def is_cache_stale(filepath, max_age_hours=CACHE_MAX_AGE_HOURS):
+def is_cache_stale(filepath, max_age_hours=CACHE_MAX_AGE_HOURS, data_type="games"):
+    """Check if cached data needs refreshing. Uses smart season-aware logic when available."""
+    if HAS_SMART_CACHE:
+        return smart_cache_stale(filepath, "nfl", data_type, max_age_hours=max_age_hours)
+    # Fallback: simple age check
     if not os.path.exists(filepath) or os.path.getsize(filepath) < 500:
         return True
     age_hours = (datetime.now().timestamp() - os.path.getmtime(filepath)) / 3600

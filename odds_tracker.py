@@ -15,6 +15,8 @@ import requests
 ODDS_CACHE_DIR = "odds_cache"
 ODDS_API_BASE = "https://api.the-odds-api.com/v4"
 CLV_HISTORY_FILE = "clv_history.json"
+ODDS_CACHE_FILE = "odds_latest.json"
+ODDS_CACHE_MAX_MINUTES = 15  # Only re-fetch if cache older than 15 min
 
 # Sport keys for The Odds API
 SPORT_KEYS = {
@@ -279,10 +281,73 @@ def save_clv_record(sport, game_id, model_prob, opening_prob, closing_prob, outc
         json.dump(hist, f, indent=2)
 
 
-def get_today_odds(sport, api_key=None):
-    """Fetch and parse today's odds. Returns list of parsed game dicts."""
+def _odds_cache_path(sport):
+    """Get the odds cache file path for a sport."""
+    cache_dir = os.path.join(os.path.dirname(__file__), ODDS_CACHE_DIR, sport)
+    os.makedirs(cache_dir, exist_ok=True)
+    return os.path.join(cache_dir, ODDS_CACHE_FILE)
+
+
+def _load_odds_cache(sport):
+    """Load cached odds if fresh enough. Returns (data, is_fresh)."""
+    path = _odds_cache_path(sport)
+    if not os.path.exists(path):
+        return None, False
+
+    try:
+        with open(path, "r") as f:
+            cached = json.load(f)
+
+        fetched_at = datetime.fromisoformat(cached.get("fetched_at", "2000-01-01"))
+        age_minutes = (datetime.now() - fetched_at).total_seconds() / 60
+
+        if age_minutes < ODDS_CACHE_MAX_MINUTES:
+            return cached.get("games", []), True
+
+        return cached.get("games", []), False
+    except Exception:
+        return None, False
+
+
+def _save_odds_cache(sport, parsed_games):
+    """Save parsed odds to cache."""
+    path = _odds_cache_path(sport)
+    data = {
+        "fetched_at": datetime.now().isoformat(),
+        "sport": sport,
+        "n_games": len(parsed_games),
+        "games": parsed_games,
+    }
+    try:
+        with open(path, "w") as f:
+            json.dump(data, f, indent=2, default=str)
+    except Exception as e:
+        logging.debug("Failed to save odds cache: %s", e)
+
+
+def get_today_odds(sport, api_key=None, force_refresh=False):
+    """Fetch and parse today's odds. Uses 15-minute cache to save API calls.
+
+    The Odds API free tier only allows 500 requests/month.
+    This cache ensures we don't waste them on repeated calls.
+
+    Returns list of parsed game dicts.
+    """
+    # Check cache first (unless forced refresh)
+    if not force_refresh:
+        cached, is_fresh = _load_odds_cache(sport)
+        if is_fresh and cached:
+            logging.info("Using cached odds (%s, %d games)", sport, len(cached))
+            return cached
+
+    # Fetch fresh data
     raw = fetch_odds(sport, api_key)
     if not raw:
+        # If API fails, return stale cache if available
+        cached, _ = _load_odds_cache(sport)
+        if cached:
+            logging.info("API failed, using stale odds cache (%d games)", len(cached))
+            return cached
         return []
 
     parsed = []
@@ -291,9 +356,10 @@ def get_today_odds(sport, api_key=None):
         if p["num_books"] > 0:
             parsed.append(p)
 
-    # Cache the snapshot
+    # Save to both snapshot archive and quick cache
     if parsed:
         cache_odds_snapshot(sport, parsed)
+        _save_odds_cache(sport, parsed)
 
     return parsed
 

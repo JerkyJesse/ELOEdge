@@ -145,9 +145,22 @@ def _get_reddit_instance():
         return None
 
 
+def _cache_path(sport):
+    """Get cache file path, checking both sport dir and current dir."""
+    base = os.path.dirname(__file__)
+    # Try sport-specific directory first
+    sport_dir = os.path.join(base, sport.upper()[:3] + (sport[3:] if len(sport) > 3 else "") + "Claude")
+    if not os.path.isdir(sport_dir):
+        sport_dir = os.path.join(base, sport.upper() + "Claude")
+    if not os.path.isdir(sport_dir):
+        # Fallback: save in shared cache dir
+        sport_dir = os.path.join(base, "sentiment_cache")
+    os.makedirs(sport_dir, exist_ok=True)
+    return os.path.join(sport_dir, SENTIMENT_CACHE_FILE)
+
+
 def _load_cache(sport):
-    cache_file = os.path.join(os.path.dirname(__file__),
-                              sport + "Claude", SENTIMENT_CACHE_FILE)
+    cache_file = _cache_path(sport)
     if os.path.exists(cache_file):
         try:
             with open(cache_file, "r") as f:
@@ -156,17 +169,19 @@ def _load_cache(sport):
             fetched = data.get("fetched_at", "")
             if fetched:
                 dt = datetime.fromisoformat(fetched)
-                if (datetime.now() - dt).total_seconds() < CACHE_MAX_AGE_HOURS * 3600:
+                age_hours = (datetime.now() - dt).total_seconds() / 3600
+                if age_hours < CACHE_MAX_AGE_HOURS:
                     return data
+                # Return stale data with a flag so callers can decide
+                data["_stale"] = True
+                return data
         except (json.JSONDecodeError, IOError, ValueError):
             pass
     return None
 
 
 def _save_cache(sport, data):
-    cache_dir = os.path.join(os.path.dirname(__file__), sport + "Claude")
-    os.makedirs(cache_dir, exist_ok=True)
-    cache_file = os.path.join(cache_dir, SENTIMENT_CACHE_FILE)
+    cache_file = _cache_path(sport)
     with open(cache_file, "w") as f:
         json.dump(data, f, indent=2)
 
@@ -244,12 +259,18 @@ def fetch_all_team_sentiment(sport, force=False):
     # Check cache
     if not force:
         cached = _load_cache(sport_l)
-        if cached:
+        if cached and not cached.get("_stale"):
             logging.info("Using cached sentiment data (%d teams)", len(cached.get("teams", {})))
             return cached.get("teams", {})
 
     reddit = _get_reddit_instance()
     if reddit is None:
+        # No Reddit credentials — return stale cache if available
+        if not force:
+            cached = _load_cache(sport_l)
+            if cached:
+                logging.info("No Reddit creds, using stale sentiment cache")
+                return cached.get("teams", {})
         return {}
 
     team_keywords = SPORT_TEAM_KEYWORDS.get(sport_l, {})

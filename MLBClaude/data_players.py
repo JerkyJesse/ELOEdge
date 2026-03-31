@@ -14,7 +14,7 @@ from color_helpers import cok, cwarn, cdim, cbold, chi, cyel, cblu, cgrn
 
 
 def download_player_stats(csv_file=PLAYER_STATS_FILE):
-    if not is_cache_stale(csv_file):
+    if not is_cache_stale(csv_file, data_type="players"):
         logging.info("Using cached player stats %s", csv_file)
         return csv_file
     logging.info("Downloading MLB player stats via statsapi...")
@@ -121,7 +121,7 @@ def download_player_stats(csv_file=PLAYER_STATS_FILE):
 
 def download_advanced_stats(csv_file=ADVANCED_STATS_FILE):
     """Download pitching stats as advanced stats for MLB."""
-    if not is_cache_stale(csv_file):
+    if not is_cache_stale(csv_file, data_type="players"):
         logging.info("Using cached advanced stats %s", csv_file)
         return csv_file
     logging.info("Downloading MLB pitching stats via statsapi...")
