@@ -131,7 +131,12 @@ def backtest_model(csv_file=GAMES_FILE, output_csv="nfl_backtest_predictions.csv
 
 
 _OPT_KEYS = ("k", "home_adv", "player_boost", "rest_factor",
-             "travel_factor", "sos_factor", "playoff_hca_factor", "pace_factor")
+             "form_weight", "travel_factor", "sos_factor",
+             "playoff_hca_factor", "pace_factor", "bye_week_factor",
+             "division_factor", "mean_reversion", "b2b_penalty",
+             "road_trip_factor", "homestand_factor", "win_streak_factor",
+             "altitude_factor", "season_phase_factor",
+             "scoring_consistency_factor", "rest_advantage_cap")
 
 def _apply_best_settings(best_params, csv_file):
     """Save best params to settings, rebuild model, refit Platt."""
@@ -150,11 +155,18 @@ def _apply_best_settings(best_params, csv_file):
     _, metrics = backtest_model(csv_file, model=model, fit_platt=True)
 
     print("\n  %s" % cok("Best settings saved to nfl_elo_settings.json"))
-    print("  K=%.1f  HomeAdv=%.1f  PBoost=%.1f  Rest=%.1f  Travel=%.1f  SOS=%.1f  PlayoffHCA=%.1f  Pace=%.1f"
+    print("  K=%.1f  HomeAdv=%.1f  PBoost=%.1f  Rest=%.1f  Form=%.1f  Travel=%.1f  SOS=%.1f  PlayoffHCA=%.2f  Pace=%.1f  Bye=%.1f"
           % (settings["k"], settings["home_adv"],
              settings.get("player_boost", 0), settings.get("rest_factor", 0),
-             settings.get("travel_factor", 0), settings.get("sos_factor", 0),
-             settings.get("playoff_hca_factor", 1.0), settings.get("pace_factor", 0)))
+             settings.get("form_weight", 0), settings.get("travel_factor", 0),
+             settings.get("sos_factor", 0), settings.get("playoff_hca_factor", 1.0),
+             settings.get("pace_factor", 0), settings.get("bye_week_factor", 0)))
+    print("  Div=%.1f  MeanRev=%.1f  B2B=%.1f  RoadTrip=%.1f  Homestand=%.1f  WinStrk=%.1f  Alt=%.1f  SeasPhase=%.1f  ScorCons=%.1f  RestCap=%.1f"
+          % (settings.get("division_factor", 0), settings.get("mean_reversion", 0),
+             settings.get("b2b_penalty", 0), settings.get("road_trip_factor", 0),
+             settings.get("homestand_factor", 0), settings.get("win_streak_factor", 0),
+             settings.get("altitude_factor", 0), settings.get("season_phase_factor", 0),
+             settings.get("scoring_consistency_factor", 0), settings.get("rest_advantage_cap", 0)))
     return settings
 
 
@@ -1327,9 +1339,9 @@ def auto_optimize(csv_file=GAMES_FILE):
     """Run grid -> genetic -> bayesian automatically, compare all, apply the best.
 
     No interactive prompts. Uses sensible defaults for each phase:
-      Phase 1: Coarse grid (768 combos) to find the neighborhood
-      Phase 2: Genetic with tightened bounds (50 gen x 25 pop) to refine
-      Phase 3: Bayesian with same bounds (15 initial + 40 iter) to polish
+      Phase 1: Coarse grid (core params only) to find the neighborhood
+      Phase 2: Genetic with ALL 20 params (tightened bounds) to refine
+      Phase 3: Bayesian with ALL 20 params (GP surrogate) to polish
       Phase 4: Compare all three winners, apply the absolute best
     """
     import time
@@ -1347,15 +1359,48 @@ def auto_optimize(csv_file=GAMES_FILE):
     _prebuilt = build_league_player_scores(player_df) if has_players else {}
     _alt = _calc_altitude_bonus(csv_file)
 
+    # ----------------------------------------------------------------
+    # PARAMS: (name, grid_values_or_None, (lo, hi), half_width)
+    #   grid_values=None  -> skip in grid phase, include in genetic/bayesian
+    # ----------------------------------------------------------------
+    PARAMS = [
+        # --- Core (in grid) ---
+        ("k",                      [10, 20, 35, 55],   (5, 100),    15),
+        ("home_adv",               [25, 45, 65, 90],   (0, 180),    20),
+        ("player_boost",           [0, 15, 30],         (0, 80),     12),
+        ("rest_factor",            [0, 20, 40],         (0, 80),     15),
+        ("form_weight",            [0, 10],             (0, 40),     10),
+        ("travel_factor",          [0, 15],             (0, 60),     15),
+        ("sos_factor",             [0, 15],             (0, 50),     12),
+        ("playoff_hca_factor",     [0.5, 0.8],          (0.0, 1.5),  0.3),
+        ("pace_factor",            [0, 20],             (0, 60),     15),
+        ("bye_week_factor",        [0, 20],             (0, 60),     15),
+        # --- Secondary (genetic/bayesian only) ---
+        ("division_factor",        None,                (0, 40),     10),
+        ("mean_reversion",         None,                (0, 20),     5),
+        ("b2b_penalty",            None,                (0, 100),    20),
+        ("road_trip_factor",       None,                (0, 20),     5),
+        ("homestand_factor",       None,                (0, 20),     5),
+        ("win_streak_factor",      None,                (0, 20),     5),
+        ("altitude_factor",        None,                (0, 30),     8),
+        ("season_phase_factor",    None,                (0, 20),     5),
+        ("scoring_consistency_factor", None,            (0, 15),     4),
+        ("rest_advantage_cap",     None,                (0, 10),     3),
+    ]
+
+    param_names   = [p[0] for p in PARAMS]
+    n_params      = len(PARAMS)
+    grid_params   = [(i, p) for i, p in enumerate(PARAMS) if p[1] is not None]
+    secondary_idx = [i for i, p in enumerate(PARAMS) if p[1] is None]
+
     eval_count = [0]
 
     def _eval(params):
-        """Shared objective: minimize LogLoss*8 + Brier*40."""
-        k, ha, pb, rf, tf, pf, phca = params
-        m = NFLElo(base_rating=base, k=float(k), home_adv=float(ha), use_mov=use_mov,
-                   player_boost=float(pb), rest_factor=float(rf),
-                   travel_factor=float(tf), pace_factor=float(pf),
-                   playoff_hca_factor=float(phca))
+        """Shared objective: minimize LogLoss*8 + Brier*40.  params is a list/array of len n_params."""
+        kw = {param_names[i]: float(params[i]) for i in range(n_params)}
+        kw["base_rating"] = base
+        kw["use_mov"] = use_mov
+        m = NFLElo(**kw)
         m._altitude_bonus = _alt
         if has_players:
             m._player_scores = _prebuilt
@@ -1366,63 +1411,64 @@ def auto_optimize(csv_file=GAMES_FILE):
         return met["log_loss"] * 8.0 + met["brier"] * 40.0, met
 
     def _params_dict(p):
-        return {"k": float(p[0]), "home_adv": float(p[1]), "player_boost": float(p[2]),
-                "rest_factor": float(p[3]), "travel_factor": float(p[4]),
-                "pace_factor": float(p[5]), "playoff_hca_factor": float(p[6])}
+        return {param_names[i]: float(p[i]) for i in range(n_params)}
 
     def _fmt(p):
-        return "K=%.1f HA=%.1f PB=%.1f R=%.1f T=%.1f P=%.1f PHCA=%.2f" % tuple(p[:7])
+        core = "K=%.1f HA=%.1f PB=%.1f R=%.1f FW=%.1f T=%.1f SOS=%.1f PHCA=%.2f Pace=%.1f Bye=%.1f" % (
+            p[0], p[1], p[2], p[3], p[4], p[5], p[6], p[7], p[8], p[9])
+        sec = " Div=%.1f MR=%.1f B2B=%.1f RT=%.1f HS=%.1f WS=%.1f Alt=%.1f SP=%.1f SC=%.1f RC=%.1f" % (
+            p[10], p[11], p[12], p[13], p[14], p[15], p[16], p[17], p[18], p[19])
+        return core + sec
 
     winners = []  # [(score, params_array, source_name, metrics)]
 
     print("\n" + "=" * 80)
-    print(chi("  AUTO-OPTIMIZE: Grid -> Genetic -> Bayesian (fully automatic)"))
+    print(chi("  AUTO-OPTIMIZE: Grid -> Genetic -> Bayesian (%d params, fully automatic)" % n_params))
     print("=" * 80)
     t_start = time.time()
 
-    # -- Phase 1: Coarse Grid Search --
-    print(chi("\n  PHASE 1: Coarse Grid Search"))
+    # -- Phase 1: Coarse Grid Search (core params only) --
+    print(chi("\n  PHASE 1: Coarse Grid Search (%d core params)" % len(grid_params)))
     div(80)
 
-    k_vals    = [10, 20, 30, 40]
-    ha_vals   = [25, 40, 55, 70]
-    pb_vals   = [0, 10, 20]
-    rf_vals   = [0, 20, 40]
-    tf_vals   = [0, 30]
-    pf_vals   = [0, 30]
-    phca_vals = [0.5, 0.8]
-
-    total = len(k_vals) * len(ha_vals) * len(pb_vals) * len(rf_vals) * \
-            len(tf_vals) * len(pf_vals) * len(phca_vals)
+    grid_lists = [p[1] for _, p in grid_params]
+    total = 1
+    for gl in grid_lists:
+        total *= len(gl)
     print("  %d combinations" % total)
+
+    # Defaults for secondary params in grid phase
+    default_vec = np.zeros(n_params, dtype=float)
+    for i, p in enumerate(PARAMS):
+        default_vec[i] = settings.get(p[0], 0.0) if p[1] is None else 0.0
 
     grid_best_score, grid_best_params = 1e9, None
     grid_best_met = {}
     grid_rows = []
     t1 = time.time()
 
-    for i, (k, ha, pb, rf, tf, pf, phca) in enumerate(
-        product(k_vals, ha_vals, pb_vals, rf_vals, tf_vals, pf_vals, phca_vals), 1
-    ):
-        score, met = _eval([k, ha, pb, rf, tf, pf, phca])
+    for i_combo, combo in enumerate(product(*grid_lists), 1):
+        vec = default_vec.copy()
+        for j, (idx, _) in enumerate(grid_params):
+            vec[idx] = combo[j]
+        score, met = _eval(vec)
         if score < 1e8:
-            grid_rows.append({"k": k, "home_adv": ha, "player_boost": pb,
-                              "rest_factor": rf, "travel_factor": tf,
-                              "pace_factor": pf, "playoff_hca_factor": phca,
-                              "accuracy": met.get("accuracy", 0),
-                              "log_loss": met.get("log_loss", 0),
-                              "brier": met.get("brier", 0), "score": -score})
+            row = _params_dict(vec)
+            row.update({"accuracy": met.get("accuracy", 0), "log_loss": met.get("log_loss", 0),
+                         "brier": met.get("brier", 0), "score": -score})
+            grid_rows.append(row)
         is_best = score < grid_best_score
         if is_best:
             grid_best_score = score
-            grid_best_params = np.array([k, ha, pb, rf, tf, pf, phca], dtype=float)
+            grid_best_params = vec.copy()
             grid_best_met = met
-        if is_best or i % 100 == 0 or i == total:
+        if is_best or i_combo % 100 == 0 or i_combo == total:
             flag = cok(" <- BEST") if is_best else ""
-            print("  %4d/%d  Acc=%.2f%% LL=%.4f Br=%.4f  %s%s"
-                  % (i, total, met.get("accuracy", 0), met.get("log_loss", 0),
-                     met.get("brier", 0), _fmt([k, ha, pb, rf, tf, pf, phca]), flag),
-                  flush=True)
+            print("  %5d/%d  Acc=%.2f%% LL=%.4f Br=%.4f  %s%s"
+                  % (i_combo, total, met.get("accuracy", 0), met.get("log_loss", 0),
+                     met.get("brier", 0),
+                     "K=%.0f HA=%.0f PB=%.0f R=%.0f FW=%.0f T=%.0f SOS=%.0f PHCA=%.1f Pace=%.0f Bye=%.0f" % tuple(vec[:10]),
+                     flag), flush=True)
 
     if grid_rows:
         pd.DataFrame(grid_rows).to_csv("nfl_grid_search.csv", index=False)
@@ -1441,24 +1487,23 @@ def auto_optimize(csv_file=GAMES_FILE):
         return (max(lo, val - hw), min(hi, val + hw))
 
     bp = grid_best_params
-    bounds = [
-        _tight(bp[0], 3, 80, 8),       # K
-        _tight(bp[1], 0, 150, 12),      # HomeAdv
-        _tight(bp[2], 0, 50, 8),        # PlayerBoost
-        _tight(bp[3], 0, 60, 12),       # RestFactor
-        _tight(bp[4], 0, 60, 15),       # TravelFactor
-        _tight(bp[5], 0, 60, 15),       # PaceFactor
-        _tight(bp[6], 0.0, 1.0, 0.2),   # PlayoffHCA
-    ]
+    bounds = []
+    for i, p in enumerate(PARAMS):
+        lo, hi = p[2]
+        hw = p[3]
+        bounds.append(_tight(bp[i], lo, hi, hw))
+
     lows = np.array([b[0] for b in bounds])
     highs = np.array([b[1] for b in bounds])
     ranges = highs - lows
     ranges[ranges < 1e-12] = 1.0
 
-    print(cdim("  Tightened bounds: %s" % ["(%.1f-%.1f)" % b for b in bounds]))
+    print(cdim("  Tightened bounds (%d params):" % n_params))
+    for i, p in enumerate(PARAMS):
+        print(cdim("    %-28s (%.1f - %.1f)" % (p[0], bounds[i][0], bounds[i][1])))
 
-    # -- Phase 2: Genetic Optimization --
-    print(chi("\n  PHASE 2: Genetic Algorithm (tightened bounds)"))
+    # -- Phase 2: Genetic Optimization (all params) --
+    print(chi("\n  PHASE 2: Genetic Algorithm (%d params, tightened bounds)" % n_params))
     div(80)
     t2 = time.time()
 
@@ -1495,8 +1540,8 @@ def auto_optimize(csv_file=GAMES_FILE):
     print("  Genetic done: %.0fs  |  Best score=%.4f  Acc=%.2f%%"
           % (t2_elapsed, -gen_score, gen_met.get("accuracy", 0)))
 
-    # -- Phase 3: Bayesian Optimization --
-    print(chi("\n  PHASE 3: Bayesian Optimization (GP surrogate)"))
+    # -- Phase 3: Bayesian Optimization (all params) --
+    print(chi("\n  PHASE 3: Bayesian Optimization (%d params, GP surrogate)" % n_params))
     div(80)
     t3 = time.time()
 
@@ -1523,7 +1568,7 @@ def auto_optimize(csv_file=GAMES_FILE):
             return mu, np.sqrt(np.maximum(var, 1e-12))
 
     n_initial, n_iter = 15, 40
-    sampler = LatinHypercube(d=7)
+    sampler = LatinHypercube(d=n_params)
     X_init = lows + sampler.random(n=n_initial) * ranges
 
     X_all, y_all = [], []
@@ -1546,7 +1591,7 @@ def auto_optimize(csv_file=GAMES_FILE):
         yn = (ya - ym) / ys
         gp.fit(Xn, yn)
 
-        cands = np.random.rand(1000, 7)
+        cands = np.random.rand(1000, n_params)
         mu, sigma = gp.predict(cands)
         best_n = (bay_best_score - ym) / ys
         z = (best_n - mu) / sigma
@@ -1587,11 +1632,11 @@ def auto_optimize(csv_file=GAMES_FILE):
     total_evals = eval_count[0]
 
     print("\n" + "=" * 80)
-    print(chi("  AUTO-OPTIMIZE RESULTS"))
+    print(chi("  AUTO-OPTIMIZE RESULTS  (%d params)" % n_params))
     print("=" * 80)
     print("  %-10s  %-8s  %-8s  %-8s  %-8s  %s"
           % (chi("Source"), chi("Score"), chi("Acc%"), chi("LogLoss"), chi("Brier"), chi("Parameters")))
-    div(80)
+    div(120)
 
     overall_best_score = 1e9
     overall_best = None
@@ -1601,17 +1646,19 @@ def auto_optimize(csv_file=GAMES_FILE):
             overall_best_score = score
             overall_best = (score, params, source, met)
         flag = cok(" ** WINNER") if is_winner and score == sorted(winners, key=lambda x: x[0])[0][0] else ""
-        print("  %-10s  %8.4f  %7.2f%%  %8.4f  %8.4f  %s%s"
+        print("  %-10s  %8.4f  %7.2f%%  %8.4f  %8.4f%s"
               % (source, -score, met.get("accuracy", 0), met.get("log_loss", 0),
-                 met.get("brier", 0), _fmt(params), flag))
+                 met.get("brier", 0), flag))
+        print("    %s" % _fmt(params))
 
-    div(80)
+    div(120)
     print("  Total time: %.0f seconds  |  Total evaluations: %d" % (total_time, total_evals))
 
     # Apply the winner
     if overall_best:
         _, best_p, best_src, best_met = overall_best
-        print("\n  %s  %s  %s" % (cok("WINNER:"), chi(best_src), _fmt(best_p)))
+        print("\n  %s  %s" % (cok("WINNER:"), chi(best_src)))
+        print("  %s" % _fmt(best_p))
         print("  Acc=%s  LogLoss=%.4f  Brier=%.4f"
               % (cok("%.2f%%" % best_met.get("accuracy", 0)),
                  best_met.get("log_loss", 0), best_met.get("brier", 0)))

@@ -80,6 +80,7 @@ class NBAElo:
         self._platt_scaler = load_platt_scaler()
         self._xgb_model = None    # XGBoost booster (loaded from enhanced model)
         self._xgb_meta  = None    # XGBoost metadata (feature_cols, elo_weight)
+        self._mega_predictor = None  # MegaPredictor (31-model ensemble)
         self.metadata = {
             "season_label": get_season_label(), "trained_games": 0,
             "saved_at": None, "source_file": None, "settings": self.settings_dict(),
@@ -471,6 +472,12 @@ class NBAElo:
             if xgb_prob is not None:
                 elo_w = self._xgb_meta.get("elo_weight", 0.8)
                 raw_p = elo_w * raw_p + (1.0 - elo_w) * xgb_prob
+        # Mega-ensemble adjustment (if trained and available)
+        if calibrated and self._mega_predictor is not None:
+            mega_adj = self._mega_predictor.predict(
+                team_a, team_b, raw_p, ra - rb, game_date
+            )
+            raw_p = max(0.02, min(0.98, raw_p + mega_adj))
         if calibrated and self._platt_scaler is not None:
             return apply_platt(raw_p, self._platt_scaler)
         return raw_p
@@ -616,6 +623,7 @@ class NBAElo:
             ("Altitude Bonus", ", ".join("%s +%.1f" % (t, b) for t, b in self._altitude_bonus.items()) if self._altitude_bonus else "none (no data)"),
             ("Player Scores", "%d teams loaded" % len(self._player_scores)),
             ("XGBoost",       "ACTIVE (Elo=80% XGB=20%)" if xgb_model else "not trained — run 'enhanced'"),
+            ("Mega-Ensemble", self._mega_predictor.get_status() if self._mega_predictor else "not trained — run 'mega' first"),
             ("Auto-Resolve",  "ON" if load_elo_settings().get("autoresolve_enabled") else "OFF"),
         ]
         for label, val in rows:

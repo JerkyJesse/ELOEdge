@@ -66,7 +66,6 @@ except ImportError:
     HAS_MEGA_CONFIG = False
 
 import sys
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 try:
     from odds_tracker import show_odds_table, get_today_odds, find_game_odds
     from weather import show_weather_report, get_game_weather, compute_weather_impact
@@ -75,6 +74,12 @@ try:
 except ImportError as _e:
     HAS_MEGA_DATA = False
     logging.debug("Mega-ensemble data modules not available: %s", _e)
+
+try:
+    from kalshi import find_kalshi_odds, show_kalshi_odds
+    HAS_KALSHI = True
+except ImportError:
+    HAS_KALSHI = False
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 
@@ -299,6 +304,7 @@ def dispatch(cmd, model, csv_file):
                 br = result["best_results"]
                 print(cok("\n  Optimized: %.2f%% accuracy | LogLoss: %.4f | Brier: %.4f"
                           % (br["accuracy"], br["log_loss"], br["brier"])))
+                print(cok("  Settings saved. Run 'mega' to use them."))
         else:
             print(cerr("Mega optimizer not available. Check imports."))
     elif cmd in ("mega ablation", "mega ablate", "mega single", "megasingle"):
@@ -315,6 +321,43 @@ def dispatch(cmd, model, csv_file):
                 elo_settings=settings,
                 player_df=player_df_fresh,
             )
+        else:
+            print(cerr("Mega optimizer not available. Check imports."))
+    elif cmd.startswith("mega tune"):
+        if HAS_MEGA_OPTIMIZER:
+            from elo_model import NBAElo
+            settings = load_elo_settings()
+            player_df_fresh = load_player_stats()
+            print(cdim("  Per-model solo optimization (Phase 0 + 1)..."))
+            result = run_quick_optimize(
+                csv_file, sport="nba",
+                elo_model_class=NBAElo,
+                elo_settings=settings,
+                player_df=player_df_fresh,
+            )
+            if result and result.get("best_results"):
+                br = result["best_results"]
+                print(cok("\n  Tuned: %.2f%% accuracy | LogLoss: %.4f | Brier: %.4f"
+                          % (br["accuracy"], br["log_loss"], br["brier"])))
+        else:
+            print(cerr("Mega optimizer not available. Check imports."))
+    elif cmd in ("mega tournament", "mega tourney"):
+        if HAS_MEGA_OPTIMIZER:
+            from elo_model import NBAElo
+            settings = load_elo_settings()
+            player_df_fresh = load_player_stats()
+            print(cdim("  Head-to-head model tournament (Phase 2)..."))
+            result = run_mega_optimize(
+                csv_file, sport="nba",
+                elo_model_class=NBAElo,
+                elo_settings=settings,
+                player_df=player_df_fresh,
+                phases=[2],
+            )
+            if result and result.get("best_results"):
+                br = result["best_results"]
+                print(cok("\n  Tournament winner: %.2f%% accuracy | LogLoss: %.4f | Brier: %.4f"
+                          % (br["accuracy"], br["log_loss"], br["brier"])))
         else:
             print(cerr("Mega optimizer not available. Check imports."))
     elif cmd in ("mega models", "mega status", "models"):
@@ -378,6 +421,11 @@ def dispatch(cmd, model, csv_file):
             show_odds_table("nba")
         else:
             print(cerr("Odds module not available. pip install requests"))
+    elif cmd == "kalshi":
+        if HAS_KALSHI:
+            show_kalshi_odds("nba")
+        else:
+            print(cerr("Kalshi module not available. Check kalshi.py"))
     elif cmd == "weather":
         if HAS_MEGA_DATA:
             team = input(chi("  Home team: ")).strip()
@@ -401,7 +449,7 @@ def dispatch(cmd, model, csv_file):
 
 def main():
     print(Back.GREEN + Fore.BLACK + Style.BRIGHT
-          + "  NBA MONEYBALL + PREDICTS $1 CONTRACT TRACKER  [v3 - Elo+XGBoost ensemble]  "
+          + "  NBA MONEYBALL  [v4 - 31-Model Mega-Ensemble]  "
           + Style.RESET_ALL)
     div(80)
     print("""
@@ -409,27 +457,42 @@ WORKFLOW:
 1. Run %s FIRST -> fits calibration scaler (better probabilities)
 2. Type team name (e.g. Lakers) -> opponent -> home? (a/b/n)?
 3. See calibrated prediction + key player metrics
-4. Type 'y' to log moneyline contract
-5. After game: type 'resolve' | to sell early: type 'sell'
-6. Type 'mark' to update current market marks | 'chart' for P&L chart
+4. Type 'y' to log moneyline contract  |  'resolve' after game
+5. Run %s for 31-model ensemble  |  %s to find best settings
 
-COMMANDS: teamname | all | refresh | backtest | enhanced | platt | grid | genetic
-          bayesian | players | predicts | resolve | sell | mark | chart | settings
-          results | live | invert | autoresolve | autoresolve on | autoresolve off
-          balance        Set/view starting bankroll for Kelly criterion sizing
-          injuries       Show NBA injury report with Elo impact estimates
-          injuries set <team> <p1>,<p2>   Manually mark players as OUT
-          today / html / blogger   Generate HTML table for today's games
-          tomorrow                Generate HTML table for tomorrow's games
-          set k=30 | set home=50 | set boost=0 | set rest=5
-          set kelly=quarter | set kelly=half   Kelly sizing fraction | quit
+PREDICTIONS: <teamname> | today | tomorrow | all | players | injuries | settings
 
-OPTIMIZE: autoopt (auto grid+genetic+bayesian) | superopt (exhaustive, all 9 params)
-          singleopt (coordinate descent, one param at a time)
+DATA:        refresh | odds | kalshi | weather
 
-ADVANCED: purgedcv | cpcv | pbo | montecarlo | convergence | sliding | rollingcal
-          conformal | betacal | kelly | shap | enhanced decay
-""" % chi("backtest"))
+BACKTEST:    backtest | enhanced | enhanced decay | shap
+
+ELO OPT:    grid | genetic | bayesian | autoopt | superopt | singleopt | results
+
+VALIDATE:    purgedcv | cpcv | pbo | montecarlo | convergence | sliding
+             rollingcal | conformal | betacal | kelly
+
+MEGA (31 models):
+  mega                Run mega-ensemble backtest (26+ models)
+  mega optimize       7-phase per-model optimization (best results at all cost)
+  mega quick          Baseline + per-model solo tuning (Phases 0-1)
+  mega tune           Per-model solo optimization (same as mega quick)
+  mega tournament     Head-to-head model tournament (Phase 2)
+  mega ablation       Test each model's contribution, auto-prune bad ones
+  mega models         Show all 31 models with ON/OFF status
+  mega on/off <model> Enable/disable individual models
+  mega settings       Show all mega parameter values
+  mega set adj=0.10   Set mega parameter (adj, meta, retrain, pn, mn, etc.)
+
+SETTINGS (39 Elo params, type 'set' to see all):
+  set k=8.38 | set home=50 | set boost=20 | set rest=10 | set b2b=30
+  set travel=15 | set pace=35 | set sos=5 | set streak=5
+  set kelly=quarter | set balance=1000 | set autoresolve=true
+
+TRADING:     predicts | balance | resolve | sell | mark | invert | chart
+             live | autoresolve | autoresolve on/off
+
+             help [command] | quit
+""" % (chi("backtest"), chi("mega"), chi("mega optimize")))
 
     csv_file = download_recent_games()
     download_player_stats()
@@ -468,6 +531,7 @@ ADVANCED: purgedcv | cpcv | pbo | montecarlo | convergence | sliding | rollingca
         "conformal","betacal","autoopt","auto-optimize","auto optimize",
         "superopt","super-optimize","super optimize","super",
         "singleopt","single-opt","single opt","coorddescent","coord",
+        "kalshi",
     }
 
     while True:
@@ -541,18 +605,43 @@ ADVANCED: purgedcv | cpcv | pbo | montecarlo | convergence | sliding | rollingca
                     show_player_metrics(player_df, team_a, 3)
                     show_player_metrics(player_df, team_b, 3)
                 kelly_contracts = 0
-                odds_input = input(
-                    "\nActual trade odds in cents (e.g. 62 for $0.62, or Enter to skip): "
-                ).strip()
-                if odds_input:
-                    try:
-                        market_cents = float(odds_input)
-                        if 1 <= market_cents <= 99:
-                            kelly_contracts = show_kelly_recommendation(prob, market_cents)
-                        else:
-                            print(cwarn("  Odds must be between 1-99 cents."))
-                    except ValueError:
-                        print(cwarn("  Couldn't parse odds input."))
+                market_cents = None
+                # Auto-fetch from Kalshi if enabled
+                settings_now = load_elo_settings()
+                if HAS_KALSHI and settings_now.get("auto_kalshi"):
+                    h_team = team_a if team_a_home else team_b
+                    a_team = team_b if team_a_home else team_a
+                    kalshi = find_kalshi_odds(h_team, a_team, "nba")
+                    if kalshi and kalshi.get("midpoint"):
+                        bid = kalshi.get("home_yes_bid")
+                        ask = kalshi.get("home_yes_ask")
+                        mid = kalshi["midpoint"]
+                        # If our predicted winner is the AWAY team, flip to away price
+                        if winner == a_team:
+                            bid = (100 - ask) if ask else None
+                            ask = (100 - (kalshi.get("home_yes_bid") or 0)) if kalshi.get("home_yes_bid") else None
+                            mid = (100 - kalshi["midpoint"])
+                        bid_s = "%d\u00a2" % bid if bid else "?"
+                        ask_s = "%d\u00a2" % ask if ask else "?"
+                        print("\n   %s  Kalshi: %s bid / %s ask  (mid %d\u00a2)"
+                              % (cok("KALSHI"), chi(bid_s), chi(ask_s), mid))
+                        market_cents = float(mid)
+                    else:
+                        print(cdim("\n   Kalshi: no matching market found, enter manually"))
+                if market_cents is None:
+                    odds_input = input(
+                        "\nActual trade odds in cents (e.g. 62 for $0.62, or Enter to skip): "
+                    ).strip()
+                    if odds_input:
+                        try:
+                            market_cents = float(odds_input)
+                            if not (1 <= market_cents <= 99):
+                                print(cwarn("  Odds must be between 1-99 cents."))
+                                market_cents = None
+                        except ValueError:
+                            print(cwarn("  Couldn't parse odds input."))
+                if market_cents and 1 <= market_cents <= 99:
+                    kelly_contracts = show_kelly_recommendation(prob, market_cents)
                 log_choice = input(
                     "\nLog this moneyline pick as a Predicts position? (y/n): "
                 ).strip().lower()

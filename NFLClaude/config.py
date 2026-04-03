@@ -6,7 +6,6 @@ import json
 import logging
 from datetime import datetime
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 try:
     from cache_utils import smart_cache_stale, get_cache_age_str
     HAS_SMART_CACHE = True
@@ -38,7 +37,7 @@ TEAM_ABBR = {
     "New York Jets": "NYJ",        "Philadelphia Eagles": "PHI",
     "Pittsburgh Steelers": "PIT",  "San Francisco 49ers": "SF",
     "Seattle Seahawks": "SEA",     "Tampa Bay Buccaneers": "TB",
-    "Tennessee Titans": "TEN",     "Washington Commanders": "WAS",
+    "Tennessee Titans": "TEN",     "Washington Commanders": "WSH",
 }
 
 NFL_DIVISIONS = {
@@ -98,18 +97,19 @@ def is_cache_stale(filepath, max_age_hours=CACHE_MAX_AGE_HOURS, data_type="games
 
 def load_elo_settings(filename=SETTINGS_FILE):
     defaults = {
-        "base_rating": 1500.0, "k": 20.0, "home_adv": 48.0,
+        "base_rating": 1500.0, "k": 20.0, "home_adv": 25.0,
         "use_mov": True, "autoresolve_enabled": False,
-        "player_boost": 25.0, "rest_factor": 40.0, "form_weight": 0.0,
-        "travel_factor": 15.0, "sos_factor": 20.0,
-        "playoff_hca_factor": 0.70, "pace_factor": 0.0,
-        "division_factor": 0.0, "mean_reversion": 0.0,
+        "player_boost": 25.0, "rest_factor": 8.0, "form_weight": 15.0,
+        "travel_factor": 0.0, "sos_factor": 13.0,
+        "playoff_hca_factor": 1.2, "pace_factor": 0.0,
+        "division_factor": 20.0, "mean_reversion": 10.0,
         "b2b_penalty": 0.0, "road_trip_factor": 0.0,
-        "homestand_factor": 0.0, "win_streak_factor": 0.0,
-        "altitude_factor": 0.0, "season_phase_factor": 0.0,
-        "scoring_consistency_factor": 0.0, "rest_advantage_cap": 0.0,
-        "bye_week_factor": 0.0,
+        "homestand_factor": 0.0, "win_streak_factor": 5.0,
+        "altitude_factor": 0.0, "season_phase_factor": 5.0,
+        "scoring_consistency_factor": 5.0, "rest_advantage_cap": 0.0,
+        "bye_week_factor": 15.0,
         "starting_balance": 50.0, "kelly_fraction": 0.25,
+        "auto_kalshi": False,
     }
     if os.path.exists(filename):
         try:

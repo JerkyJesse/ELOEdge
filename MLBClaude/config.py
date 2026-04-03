@@ -6,7 +6,6 @@ import json
 import logging
 from datetime import datetime
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 try:
     from cache_utils import smart_cache_stale, get_cache_age_str
     HAS_SMART_CACHE = True
@@ -23,7 +22,7 @@ PLATT_SCALER_FILE      = "mlb_platt_scaler.json"
 CACHE_MAX_AGE_HOURS    = 6
 
 TEAM_ABBR = {
-    "Arizona Diamondbacks": "ARI",   "Atlanta Braves": "ATL",
+    "Arizona Diamondbacks": "AZ",    "Atlanta Braves": "ATL",
     "Baltimore Orioles": "BAL",      "Boston Red Sox": "BOS",
     "Chicago Cubs": "CHC",           "Chicago White Sox": "CWS",
     "Cincinnati Reds": "CIN",        "Cleveland Guardians": "CLE",
@@ -32,8 +31,8 @@ TEAM_ABBR = {
     "Los Angeles Angels": "LAA",     "Los Angeles Dodgers": "LAD",
     "Miami Marlins": "MIA",          "Milwaukee Brewers": "MIL",
     "Minnesota Twins": "MIN",        "New York Mets": "NYM",
-    "New York Yankees": "NYY",       "Oakland Athletics": "OAK",
-    "Athletics": "OAK",
+    "New York Yankees": "NYY",       "Oakland Athletics": "ATH",
+    "Athletics": "ATH",              "Sacramento Athletics": "ATH",
     "Philadelphia Phillies": "PHI",  "Pittsburgh Pirates": "PIT",
     "San Diego Padres": "SD",        "San Francisco Giants": "SF",
     "Seattle Mariners": "SEA",       "St. Louis Cardinals": "STL",
@@ -107,25 +106,27 @@ def is_cache_stale(filepath, max_age_hours=CACHE_MAX_AGE_HOURS, data_type="games
 
 def load_elo_settings(filename=SETTINGS_FILE):
     defaults = {
-        "base_rating": 1500.0, "k": 5.5, "home_adv": 24.0,
+        "base_rating": 1500.0, "k": 1.0, "home_adv": 23.52,
         "use_mov": True, "autoresolve_enabled": False,
-        "player_boost": 15.0, "starter_boost": 30.0,
-        "rest_factor": 8.0, "form_weight": 0.0,
-        "travel_factor": 12.0, "sos_factor": 0.0,
-        "playoff_hca_factor": 0.70, "pace_factor": 15.0,
-        "division_factor": 0.0, "mean_reversion": 0.0,
-        "pyth_factor": 0.0, "home_road_factor": 0.0, "mov_base": 0.8,
+        "player_boost": 2.63, "starter_boost": 11.69,
+        "rest_factor": 0.0, "form_weight": 3.06,
+        "travel_factor": 0.0, "sos_factor": 0.0,
+        "playoff_hca_factor": 0.968, "pace_factor": 8.26,
+        "division_factor": 0.0, "mean_reversion": 10.0,
+        "pyth_factor": 16.0, "home_road_factor": 0.027, "mov_base": 0.3,
         "season_regress": 0.33,
-        "b2b_penalty": 0.0, "road_trip_factor": 0.0,
-        "homestand_factor": 0.0, "win_streak_factor": 0.0,
-        "altitude_factor": 0.0, "season_phase_factor": 0.0,
-        "scoring_consistency_factor": 0.0, "rest_advantage_cap": 0.0,
-        "park_factor_weight": 0.0,
-        "mov_cap": 0.0, "east_travel_penalty": 0.0,
-        "series_adaptation": 0.0, "interleague_factor": 0.0,
-        "bullpen_factor": 0.0, "opp_pitcher_factor": 0.0,
-        "k_decay": 0.0, "surprise_k": 0.0,
+        "b2b_penalty": 44.63, "road_trip_factor": 0.0,
+        "homestand_factor": 1.57, "win_streak_factor": 0.0,
+        "altitude_factor": 0.137, "season_phase_factor": 10.0,
+        "scoring_consistency_factor": 0.0, "rest_advantage_cap": 3.07,
+        "park_factor_weight": 0.015,
+        "mov_cap": 18.19, "east_travel_penalty": 0.0,
+        "series_adaptation": 8.0, "interleague_factor": 2.79,
+        "bullpen_factor": 6.34, "opp_pitcher_factor": 16.0,
+        "k_decay": 2.1, "surprise_k": 0.0,
+        "elo_scale": 400.0,
         "starting_balance": 0.0, "kelly_fraction": 0.50,
+        "auto_kalshi": False,
     }
     if os.path.exists(filename):
         try:

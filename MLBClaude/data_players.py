@@ -312,26 +312,57 @@ def show_player_metrics(player_df, team=None, top_n=5):
         if df_sub.empty:
             print("   " + cwarn("No stats found for %s (%s)" % (team, abbr)))
             return
-        df = df_sub.sort_values("HR", ascending=False).head(top_n)
+    else:
+        df_sub = player_df.copy()
+
+    # Identify pitchers from advanced stats (have ERA > 0)
+    pitcher_names = set()
+    if not adv_df.empty:
+        pitcher_rows = adv_df[adv_df["ERA"].notna() & (adv_df["ERA"].astype(float) > 0)]
+        pitcher_names = set(pitcher_rows["Player"].values)
+
+    # Separate batters from pitchers
+    batters = df_sub[~df_sub["Player"].isin(pitcher_names)].copy()
+    # Also filter out anyone with AVG < 0.100 (likely a pitcher in batter stats)
+    if "AVG" in batters.columns:
+        batters = batters[batters["AVG"].fillna(0).astype(float) >= 0.050]
+    batters = batters.sort_values("HR", ascending=False).head(top_n)
+
+    pitchers = df_sub[df_sub["Player"].isin(pitcher_names)].head(2)
+
+    if team:
         label = "Top %d for %s (%s)" % (top_n, team, abbr)
     else:
-        df = player_df.sort_values("HR", ascending=False).head(top_n)
         label = "LEAGUE TOP %d SLUGGERS" % top_n
+
+    if batters.empty and pitchers.empty:
+        print("   " + cwarn("No stats found for %s (%s)" % (team, abbr) if team else "league"))
+        return
+
     print("\n   %s:" % chi(label))
-    for i, (_, row) in enumerate(df.iterrows(), 1):
-        era_str = ""
-        if not adv_df.empty:
-            adv_row = adv_df[adv_df["Player"] == row.get("Player")]
-            if not adv_row.empty:
-                era = adv_row.iloc[0].get("ERA", float("nan"))
-                if not pd.isna(era):
-                    era_str = " %s ERA:%s" % (cdim("|"), cok("%.2f" % era))
+
+    # Show batters (HR, RBI, AVG, OPS — no ERA)
+    sep = cdim("|")
+    for i, (_, row) in enumerate(batters.iterrows(), 1):
         hr_s = cok("%4d" % int(row.get("HR", 0) or 0))
         rbi_s = cyel("%4d" % int(row.get("RBI", 0) or 0))
         avg_s = cblu("%.3f" % float(row.get("AVG", 0) or 0))
         ops_s = cgrn("%.3f" % float(row.get("OPS", 0) or 0))
-        sep = cdim("|")
         name_s = cbold("%-22s" % str(row.get("Player", ""))[:22])
-        print("     %s %s %s HR:%s %s RBI:%s %s AVG:%s %s OPS:%s%s"
-              % (cdim("%d." % i), name_s, sep, hr_s, sep, rbi_s, sep, avg_s, sep, ops_s,
-                 era_str))
+        print("     %s %s %s HR:%s %s RBI:%s %s AVG:%s %s OPS:%s"
+              % (cdim("%d." % i), name_s, sep, hr_s, sep, rbi_s, sep, avg_s, sep, ops_s))
+
+    # Show pitchers (ERA, K — no batting stats)
+    if not pitchers.empty and not adv_df.empty:
+        for _, row in pitchers.iterrows():
+            name = str(row.get("Player", ""))[:22]
+            adv_row = adv_df[adv_df["Player"] == name]
+            if not adv_row.empty:
+                era = adv_row.iloc[0].get("ERA", float("nan"))
+                k = adv_row.iloc[0].get("SO", adv_row.iloc[0].get("K", float("nan")))
+                if not pd.isna(era) and float(era) > 0:
+                    k_str = ""
+                    if not pd.isna(k):
+                        k_str = " %s K:%s" % (sep, cyel("%d" % int(k)))
+                    print("     %s %s %s ERA:%s%s"
+                          % (cdim("P."), cbold("%-22s" % name), sep, cok("%.2f" % float(era)), k_str))

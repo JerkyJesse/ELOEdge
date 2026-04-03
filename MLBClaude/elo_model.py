@@ -91,7 +91,8 @@ class MLBElo:
                  mov_cap=0.0, east_travel_penalty=0.0,
                  series_adaptation=0.0, interleague_factor=0.0,
                  bullpen_factor=0.0, opp_pitcher_factor=0.0,
-                 k_decay=0.0, surprise_k=0.0):
+                 k_decay=0.0, surprise_k=0.0,
+                 elo_scale=400.0):
         self.base_rating   = base_rating
         self.k             = k
         self.home_adv      = home_adv
@@ -126,6 +127,7 @@ class MLBElo:
         self.opp_pitcher_factor = opp_pitcher_factor  # opposing pitcher quality weight
         self.k_decay       = k_decay                # K-factor decay: k shrinks as team plays more games
         self.surprise_k    = surprise_k             # extra K after surprising results (autocorrelation)
+        self.elo_scale     = elo_scale              # probability scaling divisor (400=standard, lower=more extreme)
         self.ratings       = defaultdict(lambda: base_rating)
         self.team_names    = []
         self._team_lookup  = {}
@@ -152,6 +154,7 @@ class MLBElo:
         self._platt_scaler = load_platt_scaler()
         self._xgb_model = None    # XGBoost booster (loaded from enhanced model)
         self._xgb_meta  = None    # XGBoost metadata (feature_cols, elo_weight)
+        self._mega_predictor = None  # MegaPredictor (31-model ensemble)
         self.metadata = {
             "season_label": get_season_label(), "trained_games": 0,
             "saved_at": None, "source_file": None, "settings": self.settings_dict(),
@@ -646,7 +649,7 @@ class MLBElo:
         return k
 
     def expected_score(self, ra, rb):
-        return 1.0 / (1.0 + 10.0 ** ((rb - ra) / 400.0))
+        return 1.0 / (1.0 + 10.0 ** ((rb - ra) / self.elo_scale))
 
     def update_game(self, home_team, away_team, home_score, away_score,
                     neutral_site=False, game_date=None,
@@ -881,6 +884,12 @@ class MLBElo:
             if xgb_prob is not None:
                 elo_w = self._xgb_meta.get("elo_weight", 0.8)
                 raw_p = elo_w * raw_p + (1.0 - elo_w) * xgb_prob
+        # Mega-ensemble adjustment (if trained and available)
+        if calibrated and self._mega_predictor is not None:
+            mega_adj = self._mega_predictor.predict(
+                team_a, team_b, raw_p, ra - rb, game_date
+            )
+            raw_p = max(0.02, min(0.98, raw_p + mega_adj))
         if calibrated and self._platt_scaler is not None:
             return apply_platt(raw_p, self._platt_scaler)
         return raw_p
@@ -1031,6 +1040,7 @@ class MLBElo:
             ("Altitude Bonus", ", ".join("%s +%.1f" % (t, b) for t, b in self._altitude_bonus.items()) if self._altitude_bonus else "none (no data)"),
             ("Player Scores", "%d teams loaded" % len(self._player_scores)),
             ("XGBoost",       "ACTIVE (Elo=80% XGB=20%)" if xgb_model else "not trained -- run 'enhanced'"),
+            ("Mega-Ensemble", self._mega_predictor.get_status() if self._mega_predictor else "not trained -- run 'mega' first"),
             ("Auto-Resolve",  "ON" if load_elo_settings().get("autoresolve_enabled") else "OFF"),
         ]
         for label, val in rows:

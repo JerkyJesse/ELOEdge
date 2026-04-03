@@ -6,7 +6,6 @@ import json
 import logging
 from datetime import datetime
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 try:
     from cache_utils import smart_cache_stale, get_cache_age_str
     HAS_SMART_CACHE = True
@@ -89,16 +88,17 @@ def is_cache_stale(filepath, max_age_hours=CACHE_MAX_AGE_HOURS, data_type="games
 
 def load_elo_settings(filename=SETTINGS_FILE):
     defaults = {
-        "base_rating": 1500.0, "k": 8.38, "home_adv": 28.05,
+        "base_rating": 1500.0, "k": 8.0, "home_adv": 34.0,
         "use_mov": True, "autoresolve_enabled": False,
-        "player_boost": 28.0, "rest_factor": 16.02, "form_weight": 0.0,
-        "travel_factor": 33.16, "sos_factor": 0.0,
-        "playoff_hca_factor": 0.56, "pace_factor": 39.97,
+        "player_boost": 28.0, "rest_factor": 15.0, "form_weight": 10.0,
+        "travel_factor": 27.0, "sos_factor": 5.0,
+        "playoff_hca_factor": 0.50, "pace_factor": 38.0,
         "starting_balance": 0.0, "kelly_fraction": 0.50,
-        "division_factor": 0.0, "mean_reversion": 0.0,
-        "b2b_penalty": 0.0, "road_trip_factor": 0.0,
+        "auto_kalshi": False,
+        "division_factor": 10.0, "mean_reversion": 5.0,
+        "b2b_penalty": 25.0, "road_trip_factor": 0.0,
         "homestand_factor": 0.0, "win_streak_factor": 0.0,
-        "altitude_factor": 0.0, "season_phase_factor": 0.0,
+        "altitude_factor": 4.0, "season_phase_factor": 0.0,
         "scoring_consistency_factor": 0.0, "rest_advantage_cap": 0.0,
     }
     if os.path.exists(filename):
