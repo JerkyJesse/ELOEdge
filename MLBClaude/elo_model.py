@@ -4,6 +4,7 @@ import os
 import json
 import math
 import logging
+import numpy as np
 from collections import defaultdict
 from datetime import datetime, timedelta
 from difflib import get_close_matches
@@ -390,14 +391,14 @@ class MLBElo:
     def division_adjustment(self, team_a, team_b):
         """Reduce prediction confidence for divisional games"""
         if self.division_factor == 0:
-            return 0, 0
+            return 0.0, 0.0
         from config import same_division
         if same_division(team_a, team_b):
             ra, rb = self.ratings[team_a], self.ratings[team_b]
             diff = ra - rb
             adj = self.division_factor * diff / 100.0
             return -adj, adj
-        return 0, 0
+        return 0.0, 0.0
 
     def mean_reversion_adjustment(self, team):
         """After extreme results, expect regression to mean"""
@@ -512,7 +513,6 @@ class MLBElo:
         if len(scores) < 5:
             return 0.0
         recent_rf = [rf for rf, ra in scores[-10:]]
-        import numpy as np
         std = float(np.std(recent_rf))
         # MLB avg scoring std ~3 runs; penalize above-average volatility
         return -self.scoring_consistency_factor * (std - 3.0) / 10.0
@@ -904,7 +904,6 @@ class MLBElo:
             scores_b = self._team_scores.get(team_b, [])
             if len(scores_a) < 3 or len(scores_b) < 3:
                 return None
-            import numpy as np
 
             def _rolling(scores, team):
                 rf = [s[0] for s in scores[-10:]]

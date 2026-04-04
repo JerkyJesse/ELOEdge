@@ -71,6 +71,8 @@ def _isotonic_regression(y, weights=None):
     n = len(y)
     if n == 0:
         return np.array([])
+    if n == 1:
+        return y.astype(float).copy()
     result = y.astype(float).copy()
     if weights is None:
         weights = np.ones(n)

@@ -188,7 +188,8 @@ def build_model(csv_file=GAMES_FILE):
                     lambda: model.base_rating,
                     regress_ratings_to_mean(dict(model.ratings), factor=settings.get("season_regress", 0.33))
                 )
-            prev_season = row_season
+            if row_season is not None:
+                prev_season = row_season
             game_date = None
             if "date" in row and pd.notna(row["date"]):
                 try:

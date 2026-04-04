@@ -140,7 +140,7 @@ class TeamTracker:
         momentum_autocorr = 0.0
         if len(margins) >= 6:
             m = margins[-WINDOW:]
-            if len(m) >= 6:
+            if len(m) >= 2:
                 m1 = np.array(m[:-1], dtype=float)
                 m2 = np.array(m[1:], dtype=float)
                 std1 = np.std(m1)
