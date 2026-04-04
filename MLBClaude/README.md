@@ -47,7 +47,7 @@ Every model runs independently on the same game-by-game walk-forward loop. Their
 
 | # | Model | Year | Method | Description |
 |---|-------|------|--------|-------------|
-| 1 | **Elo** | 1960 | Paired comparison rating | 24+ adjusters: home advantage, MOV, pitcher Elo, rest, travel, altitude, park factors, form, SOS, interleague, playoff detection. 30 teams, 700+ pitchers tracked individually. K=1.0 for 162-game season with logarithmic MOV. |
+| 1 | **Elo** | 1960 | Paired comparison rating | 24+ adjusters: home advantage, MOV, pitcher Elo, rest, travel, altitude, park factors, form, SOS, interleague, playoff detection. 30 teams, 700+ pitchers tracked individually. K=6.0 for 162-game season with logarithmic MOV. |
 | 2 | **XGBoost** | 2016 | Gradient boosted trees | 31 rolling features per game (win%, Pythagorean, streaks, consistency, scoring trend, rest, travel). Walk-forward training with 80/20 Elo/XGBoost blend. SHAP feature importance built in. |
 
 ### Tier 1 -- Proven Models
@@ -225,15 +225,15 @@ Every parameter in this system was chosen with the specific structure of Major L
 
 | Parameter | Default | Rationale |
 |-----------|---------|-----------|
-| **K-factor** | 4.0 | MLB plays 162 games per season -- far more than NFL (17) or NBA (82). A lower K means each individual game moves ratings less, preventing wild swings from single-game randomness. Baseball has the highest game-to-game variance of the four major sports. |
-| **Home advantage** | 24 Elo (~54%) | MLB home teams historically win about 54% of games. 24 Elo points in the standard Elo formula yields approximately 53.4% expected win rate, matching observed data. This is lower than NBA (~60%) because baseball home advantage is more subtle (last at-bat, familiar park). |
+| **K-factor** | 6.0 | MLB plays 162 games per season -- far more than NFL (17) or NBA (82). A lower K means each individual game moves ratings less, preventing wild swings from single-game randomness. Baseball has the highest game-to-game variance of the four major sports. |
+| **Home advantage** | 25 Elo (~54%) | MLB home teams historically win about 54% of games. 25 Elo points in the standard Elo formula yields approximately 53.5% expected win rate, matching observed data. This is lower than NBA (~60%) because baseball home advantage is more subtle (last at-bat, familiar park). |
 | **Player scoring weight** | 45% batting / 55% pitching | Pitching dominates baseball outcomes more than hitting. A great starter can single-handedly suppress a lineup. The 55/45 split reflects the asymmetry where pitching controls the game's tempo and ceiling. |
 | **Starting pitcher tracking** | Per-pitcher Elo (K=6, 50% regression) | MLB is unique: the starting pitcher identity changes every game and has massive impact. The system tracks 700+ individual pitcher Elo ratings with K_PITCHER=6 (higher than team K because pitcher sample sizes are smaller). 50% season regression prevents staleness. |
 | **Rolling window** | 15 games | Wider than NBA's 10-game window because baseball has higher game-to-game variance. A 15-game window smooths out noise while still capturing meaningful form changes over ~2 weeks of play. |
 | **Altitude factor** | Colorado-only | Only the Colorado Rockies play at significant altitude (Coors Field, 5,280 ft). The thin air increases home run rates and scoring dramatically. No other MLB park has meaningful altitude effects. |
 | **Park factor weight** | Configurable | Each MLB stadium has a unique run environment. Coors Field inflates scoring by 20-30%, while Oracle Park suppresses it. Park factors adjust expected scoring for each venue. |
 | **Interleague factor** | Configurable | AL vs NL teams have different roster construction (historically, DH rules). Interleague games introduce unfamiliarity. The interleague factor accounts for this systematic difference. |
-| **Playoff HCA factor** | 0.70 | October games have reduced home advantage compared to regular season. Playoff atmospheres are intense on both sides, and roster construction (all-hands bullpen usage) diminishes home-field structural advantages. The 0.70 multiplier reduces the 24-point HCA to ~17 points in playoffs. |
+| **Playoff HCA factor** | 0.95 | October games have slightly reduced home advantage compared to regular season. Bayesian optimization found the reduction is smaller than initially assumed -- playoff home teams still benefit from familiar parks and crowd support. The 0.95 multiplier reduces the 25-point HCA to ~24 points in playoffs. |
 | **Season regression** | 33% | At the start of each new season, all ratings regress 33% toward 1500. This accounts for roster turnover, free agency, and the reality that last year's team is not this year's team. |
 | **MOV formula** | Logarithmic, capped | Run margins in baseball follow a roughly logarithmic value curve -- the difference between a 1-run win and a 2-run win is much more informative than between an 8-run win and a 9-run win. The cap prevents blowouts from having outsized influence. |
 | **Season calendar** | April-October (single year) | Unlike NBA/NHL which cross calendar year boundaries, the MLB season runs entirely within one calendar year. This simplifies season detection and regression timing. |
@@ -357,19 +357,19 @@ Type `set <param>=<value>` or `set <alias>=<value>`. Example: `set k=4.0`, `set 
 
 | Parameter | Aliases | Type | Default | Description |
 |-----------|---------|------|---------|-------------|
-| `k` | `k_factor` | float | 5.5 | Elo K-factor (learning rate per game) |
+| `k` | `k_factor` | float | 6.0 | Elo K-factor (learning rate per game) |
 | `base_rating` | `base`, `rating` | float | 1500.0 | Starting Elo rating for all teams |
-| `home_adv` | `home`, `hca`, `home_advantage` | float | 24.0 | Home field advantage in Elo points |
+| `home_adv` | `home`, `hca`, `home_advantage` | float | 25.0 | Home field advantage in Elo points |
 | `use_mov` | `mov`, `margin` | bool | true | Use margin of victory adjustment |
 
 #### Player / Pitcher
 
 | Parameter | Aliases | Type | Default | Description |
 |-----------|---------|------|---------|-------------|
-| `player_boost` | `boost`, `player` | float | 15.0 | Team-level player strength boost |
-| `starter_boost` | `starter`, `pitcher_boost`, `sp_boost` | float | 30.0 | Starting pitcher quality adjustment |
-| `bullpen_factor` | `bullpen`, `bp_factor`, `reliever` | float | 0.0 | Bullpen/reliever quality factor |
-| `opp_pitcher_factor` | `opp_pitcher`, `opp_sp` | float | 0.0 | Opponent pitcher adjustment factor |
+| `player_boost` | `boost`, `player` | float | 3.0 | Team-level player strength boost |
+| `starter_boost` | `starter`, `pitcher_boost`, `sp_boost` | float | 10.0 | Starting pitcher quality adjustment |
+| `bullpen_factor` | `bullpen`, `bp_factor`, `reliever` | float | 8.0 | Bullpen/reliever quality factor |
+| `opp_pitcher_factor` | `opp_pitcher`, `opp_sp` | float | 10.0 | Opponent pitcher adjustment factor |
 
 #### Margin of Victory
 
@@ -382,9 +382,9 @@ Type `set <param>=<value>` or `set <alias>=<value>`. Example: `set k=4.0`, `set 
 
 | Parameter | Aliases | Type | Default | Description |
 |-----------|---------|------|---------|-------------|
-| `rest_factor` | `rest` | float | 8.0 | Rest days advantage factor |
+| `rest_factor` | `rest` | float | 5.0 | Rest days advantage factor |
 | `rest_advantage_cap` | `restcap`, `rest_cap` | float | 0.0 | Maximum rest advantage multiplier |
-| `b2b_penalty` | `b2b`, `back_to_back` | float | 0.0 | Back-to-back game penalty |
+| `b2b_penalty` | `b2b`, `back_to_back` | float | 42.0 | Back-to-back game penalty |
 | `road_trip_factor` | `roadtrip`, `road_trip` | float | 0.0 | Extended road trip penalty |
 | `homestand_factor` | `homestand` | float | 0.0 | Extended homestand bonus |
 
@@ -392,7 +392,7 @@ Type `set <param>=<value>` or `set <alias>=<value>`. Example: `set k=4.0`, `set 
 
 | Parameter | Aliases | Type | Default | Description |
 |-----------|---------|------|---------|-------------|
-| `travel_factor` | `travel` | float | 12.0 | Elo penalty per timezone crossed |
+| `travel_factor` | `travel` | float | 5.0 | Elo penalty per timezone crossed |
 | `east_travel_penalty` | `east_travel`, `eastbound` | float | 0.0 | Extra penalty for eastbound travel |
 | `altitude_factor` | `altitude`, `alt` | float | 0.0 | Altitude bonus (Colorado Rockies only) |
 | `park_factor_weight` | `parkfactor`, `park_factor`, `park` | float | 0.0 | Park factor weight for stadium run environment |
@@ -401,17 +401,17 @@ Type `set <param>=<value>` or `set <alias>=<value>`. Example: `set k=4.0`, `set 
 
 | Parameter | Aliases | Type | Default | Description |
 |-----------|---------|------|---------|-------------|
-| `form_weight` | `form` | float | 0.0 | Recent form weight |
+| `form_weight` | `form` | float | 3.0 | Recent form weight |
 | `win_streak_factor` | `streak`, `win_streak` | float | 0.0 | Win/loss streak momentum factor |
-| `mean_reversion` | `reversion`, `regress` | float | 0.0 | Mean reversion after extreme results |
+| `mean_reversion` | `reversion`, `regress` | float | 5.0 | Mean reversion after extreme results |
 | `season_regress` | `season_regression`, `regress_pct` | float | 0.33 | Season boundary regression fraction toward 1500 |
 
 #### Matchup Adjustments
 
 | Parameter | Aliases | Type | Default | Description |
 |-----------|---------|------|---------|-------------|
-| `sos_factor` | `sos`, `strength_of_schedule` | float | 0.0 | Strength of schedule weight |
-| `division_factor` | `division`, `div` | float | 0.0 | Divisional game confidence reducer |
+| `sos_factor` | `sos`, `strength_of_schedule` | float | 5.0 | Strength of schedule weight |
+| `division_factor` | `division`, `div` | float | 7.0 | Divisional game confidence reducer |
 | `interleague_factor` | `interleague`, `il_factor` | float | 0.0 | Interleague (AL vs NL) game adjustment |
 | `series_adaptation` | `series`, `adaptation` | float | 0.0 | Series adaptation factor (rematches) |
 
@@ -419,8 +419,8 @@ Type `set <param>=<value>` or `set <alias>=<value>`. Example: `set k=4.0`, `set 
 
 | Parameter | Aliases | Type | Default | Description |
 |-----------|---------|------|---------|-------------|
-| `pace_factor` | `pace`, `tempo` | float | 15.0 | Run environment mismatch adjustment |
-| `pyth_factor` | `pyth`, `pythagorean` | float | 0.0 | Pythagorean expected W% adjustment |
+| `pace_factor` | `pace`, `tempo` | float | 9.0 | Run environment mismatch adjustment |
+| `pyth_factor` | `pyth`, `pythagorean` | float | 8.0 | Pythagorean expected W% adjustment |
 | `scoring_consistency_factor` | `consistency`, `scoring_consistency` | float | 0.0 | Penalty for volatile scoring patterns |
 | `home_road_factor` | `home_road`, `split` | float | 0.0 | Team-specific home/road split bonus |
 
@@ -428,7 +428,7 @@ Type `set <param>=<value>` or `set <alias>=<value>`. Example: `set k=4.0`, `set 
 
 | Parameter | Aliases | Type | Default | Description |
 |-----------|---------|------|---------|-------------|
-| `playoff_hca_factor` | `playoff`, `playoff_hca`, `postseason` | float | 0.70 | Playoff home advantage multiplier |
+| `playoff_hca_factor` | `playoff`, `playoff_hca`, `postseason` | float | 0.95 | Playoff home advantage multiplier |
 | `season_phase_factor` | `phase`, `season_phase` | float | 0.0 | Early-season dampener |
 
 #### K-Factor Variants
@@ -960,6 +960,17 @@ pip install torch --index-url https://download.pytorch.org/whl/cpu
 This software is for **educational and research purposes only**. It is not financial advice. Sports prediction models are inherently uncertain -- even the best models are wrong 40-45% of the time for MLB moneyline picks. No model can guarantee profits. Past backtest performance does not predict future results. Always gamble responsibly and never risk money you cannot afford to lose.
 
 The prediction probabilities produced by this system are statistical estimates, not certainties. The Predicts $1 contract ledger is a paper-trading simulation tool, not a connection to any real prediction market or sportsbook.
+
+---
+
+## Recent Changes
+
+- **Fixed `_rolling()` rest_days bug**: Away team was incorrectly using home team's rest days in XGBoost features. Each team now correctly computes its own rest days from its own schedule.
+- **Fixed broad exception handling in `backtest.py`**: Replaced `except Exception` with `except OSError` to avoid silently swallowing unexpected errors during optimization I/O.
+- **Added NaN guard for momentum autocorrelation in `enhanced_model.py`**: Prevents NaN propagation when autocorrelation returns undefined values for short or constant series.
+- **Updated Athletics park factor to 1.00 (neutral)**: Reflects the move to Sacramento's temporary venue, which has no established park factor history.
+- **Optimized Elo parameters from Bayesian optimization results**: Updated 16 default parameters (k, home_adv, player_boost, starter_boost, rest_factor, form_weight, travel_factor, sos_factor, playoff_hca_factor, pace_factor, division_factor, mean_reversion, pyth_factor, b2b_penalty, bullpen_factor, opp_pitcher_factor) based on Bayesian optimization best-found values.
+- **Made `season_regress` configurable via settings**: Season regression fraction (default 0.33) can now be tuned through the `set season_regress=<value>` command and is included in optimizer parameter sweeps.
 
 ---
 

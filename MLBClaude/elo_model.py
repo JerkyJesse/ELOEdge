@@ -17,6 +17,7 @@ from platt import load_platt_scaler, apply_platt
 
 # Park factors: run-scoring multiplier for each team's home park (1.0 = average)
 # Source: FanGraphs 5-year park factors (2020-2024 aggregate)
+# Athletics updated to neutral (1.00) pending Sacramento venue data
 PARK_FACTORS = {
     "Colorado Rockies": 1.27,       # Coors Field (extreme altitude + thin air)
     "Boston Red Sox": 1.07,         # Fenway Park (Green Monster, short dimensions)
@@ -47,8 +48,9 @@ PARK_FACTORS = {
     "San Francisco Giants": 0.95,   # Oracle Park
     "Seattle Mariners": 0.94,       # T-Mobile Park
     "Miami Marlins": 0.93,          # loanDepot park
-    "Oakland Athletics": 0.93,      # Coliseum / new park
-    "Athletics": 0.93,
+    "Oakland Athletics": 1.00,      # Sacramento (neutral pending data)
+    "Athletics": 1.00,
+    "Sacramento Athletics": 1.00,   # New venue
 }
 
 # Timezone offset (hours from UTC) for each team's home city
@@ -63,7 +65,7 @@ TEAM_TIMEZONE = {
     "Miami Marlins": -5, "Milwaukee Brewers": -6,
     "Minnesota Twins": -6, "New York Mets": -5,
     "New York Yankees": -5, "Oakland Athletics": -8,
-    "Athletics": -8,
+    "Athletics": -8, "Sacramento Athletics": -8,
     "Philadelphia Phillies": -5, "Pittsburgh Pirates": -5,
     "San Diego Padres": -8, "San Francisco Giants": -8,
     "Seattle Mariners": -8, "St. Louis Cardinals": -6,
@@ -75,23 +77,23 @@ TEAM_TIMEZONE = {
 class MLBElo:
     K_PITCHER = 6  # pitcher rating update speed
 
-    def __init__(self, base_rating=1500.0, k=4.0, home_adv=24.0,
-                 use_mov=True, player_boost=20.0, starter_boost=30.0,
-                 rest_factor=10.0,
-                 form_weight=0.0, travel_factor=0.0, sos_factor=0.0,
-                 playoff_hca_factor=0.70, pace_factor=0.0,
-                 division_factor=0.0, mean_reversion=0.0,
-                 pyth_factor=0.0, home_road_factor=0.0,
-                 mov_base=0.8,
-                 b2b_penalty=0.0, road_trip_factor=0.0,
-                 homestand_factor=0.0, win_streak_factor=0.0,
-                 altitude_factor=0.0, season_phase_factor=0.0,
-                 scoring_consistency_factor=0.0, rest_advantage_cap=0.0,
-                 park_factor_weight=0.0,
-                 mov_cap=0.0, east_travel_penalty=0.0,
-                 series_adaptation=0.0, interleague_factor=0.0,
-                 bullpen_factor=0.0, opp_pitcher_factor=0.0,
-                 k_decay=0.0, surprise_k=0.0,
+    def __init__(self, base_rating=1500.0, k=1.0, home_adv=23.52,
+                 use_mov=True, player_boost=2.63, starter_boost=11.69,
+                 rest_factor=0.0,
+                 form_weight=3.06, travel_factor=0.0, sos_factor=0.0,
+                 playoff_hca_factor=0.968, pace_factor=8.26,
+                 division_factor=0.0, mean_reversion=10.0,
+                 pyth_factor=16.0, home_road_factor=0.027,
+                 mov_base=0.3,
+                 b2b_penalty=44.63, road_trip_factor=0.0,
+                 homestand_factor=1.57, win_streak_factor=0.0,
+                 altitude_factor=0.137, season_phase_factor=10.0,
+                 scoring_consistency_factor=0.0, rest_advantage_cap=3.07,
+                 park_factor_weight=0.015,
+                 mov_cap=18.19, east_travel_penalty=0.0,
+                 series_adaptation=8.0, interleague_factor=2.79,
+                 bullpen_factor=6.34, opp_pitcher_factor=16.0,
+                 k_decay=2.1, surprise_k=0.0,
                  elo_scale=400.0):
         self.base_rating   = base_rating
         self.k             = k
@@ -416,10 +418,8 @@ class MLBElo:
         if len(scores) < 10:
             return 0.0
         recent = scores[-15:]  # Use 15-game window
-        rs = sum(rf for rf, _ in recent)
-        ra = sum(ra for _, ra in recent)
-        if rs <= 0 and ra <= 0:
-            return 0.0
+        rs = max(sum(rf for rf, _ in recent), 0.1)
+        ra = max(sum(ra_val for _, ra_val in recent), 0.1)
         # Pythagorean exponent 1.83 (Davenport/BP standard for baseball)
         exp = 1.83
         rs_exp = rs ** exp
@@ -906,12 +906,12 @@ class MLBElo:
                 return None
             import numpy as np
 
-            def _rolling(scores):
+            def _rolling(scores, team):
                 rf = [s[0] for s in scores[-10:]]
                 ra = [s[1] for s in scores[-10:]]
                 res = [1.0 if s[0] > s[1] else 0.0 for s in scores[-10:]]
                 margins = [s[0] - s[1] for s in scores[-10:]]
-                rd = self.rest_days(team_a, game_date)
+                rd = self.rest_days(team, game_date)
                 return {
                     "ppg": np.mean(rf), "papg": np.mean(ra),
                     "win_pct": np.mean(res), "avg_margin": np.mean(margins),
@@ -920,8 +920,8 @@ class MLBElo:
                     "games_played": len(rf),
                 }
 
-            home_feats = _rolling(scores_a)
-            away_feats = _rolling(scores_b)
+            home_feats = _rolling(scores_a, team_a)
+            away_feats = _rolling(scores_b, team_b)
             rd_a = self.rest_days(team_a, game_date)
             rd_b = self.rest_days(team_b, game_date)
             home_feats["rest_days"] = rd_a if rd_a is not None else 1

@@ -23,8 +23,10 @@ def run_accuracy_test(label="current", csv_file=GAMES_FILE):
     settings = load_elo_settings()
     _elo_keys = {"base_rating", "k", "home_adv", "use_mov", "player_boost",
                  "rest_factor", "form_weight", "travel_factor", "sos_factor",
-                 "pace_factor", "playoff_hca_factor",
-                 "division_factor", "mean_reversion"}
+                 "playoff_hca_factor", "pace_factor", "division_factor", "mean_reversion",
+                 "b2b_penalty", "road_trip_factor", "homestand_factor", "win_streak_factor",
+                 "altitude_factor", "season_phase_factor", "scoring_consistency_factor",
+                 "rest_advantage_cap", "bye_week_factor"}
     model = NFLElo(**{k: v for k, v in settings.items() if k in _elo_keys})
     model._altitude_bonus = _calc_altitude_bonus(csv_file)
     player_df = load_player_stats()

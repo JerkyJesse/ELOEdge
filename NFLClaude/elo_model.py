@@ -37,16 +37,16 @@ TEAM_TIMEZONE = {
 
 
 class NFLElo:
-    def __init__(self, base_rating=1500.0, k=20.0, home_adv=48.0,
-                 use_mov=True, player_boost=25.0, rest_factor=40.0,
-                 form_weight=0.0, travel_factor=15.0, sos_factor=20.0,
-                 playoff_hca_factor=0.70, pace_factor=0.0,
-                 division_factor=0.0, mean_reversion=0.0,
+    def __init__(self, base_rating=1500.0, k=20.0, home_adv=25.0,
+                 use_mov=True, player_boost=25.0, rest_factor=8.0,
+                 form_weight=15.0, travel_factor=0.0, sos_factor=13.0,
+                 playoff_hca_factor=1.2, pace_factor=0.0,
+                 division_factor=20.0, mean_reversion=10.0,
                  b2b_penalty=0.0, road_trip_factor=0.0,
-                 homestand_factor=0.0, win_streak_factor=0.0,
-                 altitude_factor=0.0, season_phase_factor=0.0,
-                 scoring_consistency_factor=0.0, rest_advantage_cap=0.0,
-                 bye_week_factor=0.0):
+                 homestand_factor=0.0, win_streak_factor=5.0,
+                 altitude_factor=0.0, season_phase_factor=5.0,
+                 scoring_consistency_factor=5.0, rest_advantage_cap=14.0,
+                 bye_week_factor=15.0):
         self.base_rating   = base_rating
         self.k             = k
         self.home_adv      = home_adv
@@ -476,12 +476,12 @@ class NFLElo:
                 return None
             import numpy as np
 
-            def _rolling(scores):
+            def _rolling(scores, team):
                 pf = [s[0] for s in scores[-5:]]
                 pa = [s[1] for s in scores[-5:]]
                 res = [1.0 if s[0] > s[1] else 0.0 for s in scores[-5:]]
                 margins = [s[0] - s[1] for s in scores[-5:]]
-                rd = self.rest_days(team_a, game_date)
+                rd = self.rest_days(team, game_date)
                 return {
                     "ppg": np.mean(pf), "papg": np.mean(pa),
                     "win_pct": np.mean(res), "avg_margin": np.mean(margins),
@@ -490,8 +490,8 @@ class NFLElo:
                     "games_played": len(pf),
                 }
 
-            home_feats = _rolling(scores_a)
-            away_feats = _rolling(scores_b)
+            home_feats = _rolling(scores_a, team_a)
+            away_feats = _rolling(scores_b, team_b)
             rd_a = self.rest_days(team_a, game_date)
             rd_b = self.rest_days(team_b, game_date)
             home_feats["rest_days"] = rd_a if rd_a is not None else 7

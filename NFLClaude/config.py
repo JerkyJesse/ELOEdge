@@ -97,17 +97,18 @@ def is_cache_stale(filepath, max_age_hours=CACHE_MAX_AGE_HOURS, data_type="games
 
 def load_elo_settings(filename=SETTINGS_FILE):
     defaults = {
-        "base_rating": 1500.0, "k": 20.0, "home_adv": 25.0,
+        "base_rating": 1500.0, "k": 35.0, "home_adv": 28.0,
         "use_mov": True, "autoresolve_enabled": False,
-        "player_boost": 25.0, "rest_factor": 8.0, "form_weight": 15.0,
-        "travel_factor": 0.0, "sos_factor": 13.0,
-        "playoff_hca_factor": 1.2, "pace_factor": 0.0,
-        "division_factor": 20.0, "mean_reversion": 10.0,
-        "b2b_penalty": 0.0, "road_trip_factor": 0.0,
-        "homestand_factor": 0.0, "win_streak_factor": 5.0,
-        "altitude_factor": 0.0, "season_phase_factor": 5.0,
-        "scoring_consistency_factor": 5.0, "rest_advantage_cap": 0.0,
-        "bye_week_factor": 15.0,
+        "player_boost": 30.0, "rest_factor": 6.0, "form_weight": 10.0,
+        "travel_factor": 7.0, "sos_factor": 5.0,
+        "playoff_hca_factor": 0.75, "pace_factor": 7.0,
+        "division_factor": 30.0, "mean_reversion": 2.5,
+        "b2b_penalty": 10.0, "road_trip_factor": 2.0,
+        "homestand_factor": 17.0, "win_streak_factor": 18.0,
+        "altitude_factor": 4.0, "season_phase_factor": 17.0,
+        "scoring_consistency_factor": 2.0, "rest_advantage_cap": 4.0,
+        "bye_week_factor": 10.0,
+        "season_regress": 0.33,
         "starting_balance": 50.0, "kelly_fraction": 0.25,
         "auto_kalshi": False,
     }

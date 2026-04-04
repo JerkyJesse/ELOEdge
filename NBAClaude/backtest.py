@@ -274,7 +274,7 @@ def grid_search_optimization(csv_file=GAMES_FILE, output_file="nba_grid_search.c
     div(120)
     for tmp in ["temp_backtest.csv", "temp_cal.csv"]:
         try: os.remove(tmp)
-        except Exception: pass
+        except OSError: pass
     if results:
         pd.DataFrame(results).to_csv(output_file, index=False)
     if best_params:
@@ -423,7 +423,7 @@ def genetic_optimization(csv_file=GAMES_FILE, output_file="nba_genetic_results.c
     pd.DataFrame([row]).to_csv(output_file, index=False)
     for tmp in ["temp_genetic.csv", "temp_genetic_cal.csv"]:
         try: os.remove(tmp)
-        except Exception: pass
+        except OSError: pass
     acc_s = cok("%.2f%%" % row["accuracy"])
     print("  FINAL METRICS:  Acc=%s  LogLoss=%.4f  Brier=%.4f  Score=%.4f"
           % (acc_s, row["log_loss"], row["brier"], row["score"]))
@@ -635,7 +635,7 @@ def bayesian_optimization(csv_file=GAMES_FILE, output_file="nba_bayesian_results
 
     for tmp in ["temp_bayes.csv", "temp_bayes_cal.csv"]:
         try: os.remove(tmp)
-        except Exception: pass
+        except OSError: pass
 
     # Save results
     rows = []
@@ -741,7 +741,7 @@ def purged_walk_forward_cv(csv_file=GAMES_FILE, k_folds=5, embargo_games=5):
 
     for tmp in ["temp_purged_train.csv", "temp_purged_p.csv", "temp_purged_c.csv"]:
         try: os.remove(tmp)
-        except Exception: pass
+        except OSError: pass
 
     if fold_metrics:
         accs = [m["accuracy"] for m in fold_metrics]
@@ -823,7 +823,7 @@ def combinatorial_purged_cv(csv_file=GAMES_FILE, k_blocks=5, k_test=2):
 
     for tmp in ["temp_cpcv.csv", "temp_cpcv_p.csv", "temp_cpcv_c.csv"]:
         try: os.remove(tmp)
-        except Exception: pass
+        except OSError: pass
 
     if all_accs:
         div(80)
@@ -946,7 +946,7 @@ def monte_carlo_permutation_test(csv_file=GAMES_FILE, n_permutations=500):
 
     for tmp in ["temp_mc_real.csv", "temp_mc_real_cal.csv", "temp_mc_shuf.csv", "temp_mc_p.csv", "temp_mc_c.csv"]:
         try: os.remove(tmp)
-        except Exception: pass
+        except OSError: pass
 
     if perm_accs:
         p_acc = sum(1 for a in perm_accs if a >= real_acc) / len(perm_accs)
@@ -1185,7 +1185,7 @@ def sliding_window_backtest(csv_file=GAMES_FILE, window_size=300):
     _, em = backtest_model(csv_file, "temp_sw.csv", "temp_sw_c.csv", model=model2)
     for tmp in ["temp_sw.csv", "temp_sw_c.csv"]:
         try: os.remove(tmp)
-        except Exception: pass
+        except OSError: pass
 
     div(80)
     print("  SLIDING (reset/%d): Acc=%.2f%%  LL=%.4f  Brier=%.4f" % (window_size, acc_s, ll_s, br_s))
@@ -1628,7 +1628,7 @@ def auto_optimize(csv_file=GAMES_FILE):
     # ── Cleanup temp files ───────────────────────────────────────────
     for tmp in ["temp_auto.csv", "temp_auto_cal.csv"]:
         try: os.remove(tmp)
-        except Exception: pass
+        except OSError: pass
 
     # ── Phase 4: Compare and apply best ──────────────────────────────
     total_time = time.time() - t_start
@@ -2092,7 +2092,7 @@ def super_optimize(csv_file=GAMES_FILE):
     # ── Cleanup temp files ────────────────────────────────────────────
     for tmp in ["temp_super.csv", "temp_super_cal.csv"]:
         try: os.remove(tmp)
-        except Exception: pass
+        except OSError: pass
 
     # ── Select the overall winner ─────────────────────────────────────
     winners.sort(key=lambda x: x[0])

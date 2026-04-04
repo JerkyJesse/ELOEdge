@@ -156,8 +156,10 @@ def build_model(csv_file=GAMES_FILE):
     settings  = load_elo_settings()
     _elo_keys = {"base_rating","k","home_adv","use_mov","player_boost",
                   "rest_factor","form_weight","travel_factor","sos_factor",
-                  "playoff_hca_factor","pace_factor",
-                  "division_factor","mean_reversion"}
+                  "playoff_hca_factor","pace_factor","division_factor","mean_reversion",
+                  "b2b_penalty","road_trip_factor","homestand_factor","win_streak_factor",
+                  "altitude_factor","season_phase_factor","scoring_consistency_factor",
+                  "rest_advantage_cap"}
     model     = NBAElo(**{k: v for k, v in settings.items() if k in _elo_keys})
     if model.load():
         _populate_game_history(model, csv_file)
@@ -201,7 +203,7 @@ def build_model(csv_file=GAMES_FILE):
                              prev_season, row_season)
                 model.ratings = defaultdict(
                     lambda: model.base_rating,
-                    regress_ratings_to_mean(dict(model.ratings), factor=0.33)
+                    regress_ratings_to_mean(dict(model.ratings), factor=settings.get("season_regress", 0.33))
                 )
             prev_season = row_season
             game_date = None

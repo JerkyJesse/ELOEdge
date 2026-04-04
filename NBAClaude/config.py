@@ -88,18 +88,19 @@ def is_cache_stale(filepath, max_age_hours=CACHE_MAX_AGE_HOURS, data_type="games
 
 def load_elo_settings(filename=SETTINGS_FILE):
     defaults = {
-        "base_rating": 1500.0, "k": 8.0, "home_adv": 34.0,
+        "base_rating": 1500.0, "k": 12.0, "home_adv": 26.0,
         "use_mov": True, "autoresolve_enabled": False,
-        "player_boost": 28.0, "rest_factor": 15.0, "form_weight": 10.0,
-        "travel_factor": 27.0, "sos_factor": 5.0,
-        "playoff_hca_factor": 0.50, "pace_factor": 38.0,
+        "player_boost": 24.0, "rest_factor": 18.0, "form_weight": 5.0,
+        "travel_factor": 15.0, "sos_factor": 5.0,
+        "playoff_hca_factor": 0.45, "pace_factor": 20.0,
         "starting_balance": 0.0, "kelly_fraction": 0.50,
         "auto_kalshi": False,
-        "division_factor": 10.0, "mean_reversion": 5.0,
-        "b2b_penalty": 25.0, "road_trip_factor": 0.0,
-        "homestand_factor": 0.0, "win_streak_factor": 0.0,
-        "altitude_factor": 4.0, "season_phase_factor": 0.0,
-        "scoring_consistency_factor": 0.0, "rest_advantage_cap": 0.0,
+        "division_factor": 5.0, "mean_reversion": 2.0,
+        "b2b_penalty": 18.0, "road_trip_factor": 2.0,
+        "homestand_factor": 2.0, "win_streak_factor": 2.0,
+        "altitude_factor": 3.0, "season_phase_factor": 2.0,
+        "scoring_consistency_factor": 2.5, "rest_advantage_cap": 1.5,
+        "season_regress": 0.33,
     }
     if os.path.exists(filename):
         try:

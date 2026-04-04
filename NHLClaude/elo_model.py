@@ -39,16 +39,16 @@ TEAM_TIMEZONE = {
 class NHLElo:
     K_GOALIE = 6
 
-    def __init__(self, base_rating=1500.0, k=8.0, home_adv=25.0,
-                 use_mov=True, player_boost=20.0, starter_boost=30.0,
-                 rest_factor=15.0,
-                 form_weight=0.0, travel_factor=20.0, sos_factor=10.0,
-                 playoff_hca_factor=0.60, pace_factor=20.0,
+    def __init__(self, base_rating=1500.0, k=3.01, home_adv=29.3,
+                 use_mov=True, player_boost=15.43, starter_boost=4.89,
+                 rest_factor=0.0,
+                 form_weight=6.94, travel_factor=0.0, sos_factor=12.48,
+                 playoff_hca_factor=1.3, pace_factor=30.0,
                  division_factor=0.0, mean_reversion=0.0,
-                 b2b_penalty=0.0, road_trip_factor=0.0,
+                 b2b_penalty=29.46, road_trip_factor=0.0,
                  homestand_factor=0.0, win_streak_factor=0.0,
-                 altitude_factor=0.0, season_phase_factor=0.0,
-                 scoring_consistency_factor=0.0, rest_advantage_cap=0.0,
+                 altitude_factor=0.237, season_phase_factor=0.0,
+                 scoring_consistency_factor=0.0, rest_advantage_cap=2.12,
                  overtime_factor=0.0):
         self.base_rating   = base_rating
         self.k             = k
@@ -414,7 +414,8 @@ class NHLElo:
         # Track game number per team
         self._game_number[home_team] = self._game_number.get(home_team, 0) + 1
         self._game_number[away_team] = self._game_number.get(away_team, 0) + 1
-        # Track OT results (1-goal differential = potential OT game)
+        # Track close games (1-goal differential as OT proxy — imperfect, includes
+        # regulation 1-goal games; set overtime_factor=0 to disable this adjustment)
         if abs(home_score - away_score) == 1:
             self._ot_results[home_team].append(1.0 if home_score > away_score else 0.0)
             self._ot_results[away_team].append(1.0 if away_score > home_score else 0.0)
@@ -535,12 +536,12 @@ class NHLElo:
                 return None
             import numpy as np
 
-            def _rolling(scores):
+            def _rolling(scores, team):
                 gf = [s[0] for s in scores[-10:]]
                 ga = [s[1] for s in scores[-10:]]
                 res = [1.0 if s[0] > s[1] else 0.0 for s in scores[-10:]]
                 margins = [s[0] - s[1] for s in scores[-10:]]
-                rd = self.rest_days(team_a, game_date)
+                rd = self.rest_days(team, game_date)
                 return {
                     "ppg": np.mean(gf), "papg": np.mean(ga),
                     "win_pct": np.mean(res), "avg_margin": np.mean(margins),
@@ -549,8 +550,8 @@ class NHLElo:
                     "games_played": len(gf),
                 }
 
-            home_feats = _rolling(scores_a)
-            away_feats = _rolling(scores_b)
+            home_feats = _rolling(scores_a, team_a)
+            away_feats = _rolling(scores_b, team_b)
             rd_a = self.rest_days(team_a, game_date)
             rd_b = self.rest_days(team_b, game_date)
             home_feats["rest_days"] = rd_a if rd_a is not None else 1

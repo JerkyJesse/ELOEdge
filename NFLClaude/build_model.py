@@ -186,7 +186,7 @@ def build_model(csv_file=GAMES_FILE):
                              prev_season, row_season)
                 model.ratings = defaultdict(
                     lambda: model.base_rating,
-                    regress_ratings_to_mean(dict(model.ratings), factor=0.33)
+                    regress_ratings_to_mean(dict(model.ratings), factor=settings.get("season_regress", 0.33))
                 )
             prev_season = row_season
             game_date = None

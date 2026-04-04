@@ -33,14 +33,14 @@ TEAM_TIMEZONE = {
 
 
 class NBAElo:
-    def __init__(self, base_rating=1500.0, k=25.0, home_adv=45.0,
-                 use_mov=True, player_boost=15.0, rest_factor=25.0,
-                 form_weight=0.0, travel_factor=0.0, sos_factor=0.0,
-                 playoff_hca_factor=1.0, pace_factor=0.0,
-                 division_factor=0.0, mean_reversion=0.0,
-                 b2b_penalty=0.0, road_trip_factor=0.0,
+    def __init__(self, base_rating=1500.0, k=8.0, home_adv=34.0,
+                 use_mov=True, player_boost=28.0, rest_factor=15.0,
+                 form_weight=10.0, travel_factor=27.0, sos_factor=5.0,
+                 playoff_hca_factor=0.50, pace_factor=38.0,
+                 division_factor=10.0, mean_reversion=5.0,
+                 b2b_penalty=25.0, road_trip_factor=0.0,
                  homestand_factor=0.0, win_streak_factor=0.0,
-                 altitude_factor=0.0, season_phase_factor=0.0,
+                 altitude_factor=4.0, season_phase_factor=0.0,
                  scoring_consistency_factor=0.0, rest_advantage_cap=0.0):
         self.base_rating   = base_rating
         self.k             = k
@@ -306,12 +306,14 @@ class NBAElo:
         return 0
 
     def b2b_penalty_adjustment(self, team, game_date):
-        """Extra penalty for back-to-back games (rest <= 1 day)."""
+        """Extra penalty for back-to-back games (played yesterday, rd=0 or rd=1)."""
         if self.b2b_penalty == 0:
             return 0.0
         rd = self.rest_days(team, game_date)
         if rd is not None and rd <= 1:
-            return -self.b2b_penalty
+            # Scale: rd=0 gets full penalty, rd=1 gets half
+            scale = 1.0 if rd == 0 else 0.5
+            return -self.b2b_penalty * scale
         return 0.0
 
     def road_trip_adjustment(self, team):
@@ -493,12 +495,12 @@ class NBAElo:
                 return None
             import numpy as np
 
-            def _rolling(scores):
+            def _rolling(scores, team):
                 pf = [s[0] for s in scores[-10:]]
                 pa = [s[1] for s in scores[-10:]]
                 res = [1.0 if s[0] > s[1] else 0.0 for s in scores[-10:]]
                 margins = [s[0] - s[1] for s in scores[-10:]]
-                rd = self.rest_days(team_a, game_date)
+                rd = self.rest_days(team, game_date)
                 return {
                     "ppg": np.mean(pf), "papg": np.mean(pa),
                     "win_pct": np.mean(res), "avg_margin": np.mean(margins),
@@ -508,8 +510,8 @@ class NBAElo:
                 }
 
             # Build rolling features for both teams
-            home_feats = _rolling(scores_a)
-            away_feats = _rolling(scores_b)
+            home_feats = _rolling(scores_a, team_a)
+            away_feats = _rolling(scores_b, team_b)
             # Fix rest days per team
             rd_a = self.rest_days(team_a, game_date)
             rd_b = self.rest_days(team_b, game_date)

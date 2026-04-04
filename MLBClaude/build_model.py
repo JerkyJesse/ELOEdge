@@ -160,7 +160,7 @@ def build_model(csv_file=GAMES_FILE):
                   "rest_advantage_cap","park_factor_weight",
                   "mov_cap","east_travel_penalty","series_adaptation",
                   "interleague_factor","bullpen_factor","opp_pitcher_factor",
-                  "k_decay","surprise_k"}
+                  "k_decay","surprise_k","elo_scale"}
     model     = MLBElo(**{k: v for k, v in settings.items() if k in _elo_keys})
     # Initialize league membership for interleague detection
     from config import build_league_map

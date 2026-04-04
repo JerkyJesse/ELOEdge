@@ -159,7 +159,8 @@ class TeamTracker:
                 std1 = np.std(m1)
                 std2 = np.std(m2)
                 if std1 > 0 and std2 > 0:
-                    momentum_autocorr = float(np.corrcoef(m1, m2)[0, 1])
+                    _corr = float(np.corrcoef(m1, m2)[0, 1])
+                    momentum_autocorr = _corr if not np.isnan(_corr) else 0.0
 
         # Defensive trend: is defense improving or degrading?
         def_trend = 0.0
