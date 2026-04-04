@@ -39,17 +39,17 @@ TEAM_TIMEZONE = {
 class NHLElo:
     K_GOALIE = 6
 
-    def __init__(self, base_rating=1500.0, k=3.01, home_adv=29.3,
-                 use_mov=True, player_boost=15.43, starter_boost=4.89,
-                 rest_factor=0.0,
-                 form_weight=6.94, travel_factor=0.0, sos_factor=12.48,
-                 playoff_hca_factor=1.3, pace_factor=30.0,
-                 division_factor=0.0, mean_reversion=0.0,
-                 b2b_penalty=29.46, road_trip_factor=0.0,
-                 homestand_factor=0.0, win_streak_factor=0.0,
-                 altitude_factor=0.237, season_phase_factor=0.0,
-                 scoring_consistency_factor=0.0, rest_advantage_cap=2.12,
-                 overtime_factor=0.0):
+    def __init__(self, base_rating=1500.0, k=5.0, home_adv=26.0,
+                 use_mov=True, player_boost=10.0, starter_boost=5.0,
+                 rest_factor=12.0,
+                 form_weight=4.0, travel_factor=8.0, sos_factor=10.0,
+                 playoff_hca_factor=1.0, pace_factor=10.0,
+                 division_factor=5.0, mean_reversion=2.5,
+                 b2b_penalty=18.0, road_trip_factor=2.5,
+                 homestand_factor=3.0, win_streak_factor=2.0,
+                 altitude_factor=4.0, season_phase_factor=2.5,
+                 scoring_consistency_factor=1.5, rest_advantage_cap=1.5,
+                 overtime_factor=5.0):
         self.base_rating   = base_rating
         self.k             = k
         self.home_adv      = home_adv
@@ -546,7 +546,7 @@ class NHLElo:
                     "ppg": np.mean(gf), "papg": np.mean(ga),
                     "win_pct": np.mean(res), "avg_margin": np.mean(margins),
                     "off_rating": np.mean(gf), "def_rating": np.mean(ga),
-                    "rest_days": rd if rd is not None else 1,
+                    "rest_days": rd if rd is not None else 2,
                     "games_played": len(gf),
                 }
 
@@ -554,8 +554,8 @@ class NHLElo:
             away_feats = _rolling(scores_b, team_b)
             rd_a = self.rest_days(team_a, game_date)
             rd_b = self.rest_days(team_b, game_date)
-            home_feats["rest_days"] = rd_a if rd_a is not None else 1
-            away_feats["rest_days"] = rd_b if rd_b is not None else 1
+            home_feats["rest_days"] = rd_a if rd_a is not None else 2
+            away_feats["rest_days"] = rd_b if rd_b is not None else 2
 
             player_diff = (self._player_scores.get(team_a, 0.0)
                            - self._player_scores.get(team_b, 0.0))

@@ -14,8 +14,8 @@ MLB game prediction system using Elo ratings + XGBoost ensemble, with Predicts $
 
 2. **Elo Model** (`elo_model.py`)
    - `MLBElo` class with 30 MLB teams
-   - Base rating 1500, configurable K-factor (default 6.0 for 162-game season)
-   - Home field advantage (default 25 Elo, ~54% implied home win rate)
+   - Base rating 1500, configurable K-factor (default 1.0 for 162-game season)
+   - Home field advantage (default 23.47 Elo, ~54% implied home win rate)
    - Margin of victory adjustment (logarithmic, capped)
    - Player strength boost (z-scored team batting+pitching composite)
    - Starting pitcher quality (per-pitcher cumulative Elo ratings, 700+ tracked, K_PITCHER=6, 50% season regression)
@@ -94,11 +94,11 @@ MLB game prediction system using Elo ratings + XGBoost ensemble, with Predicts $
 - `predicts_lots.csv` - Trading ledger
 
 ## Key MLB-Specific Design Choices
-- **K-factor = 6.0**: Lower than NBA (12.0) because 162-game season provides more signal per team
-- **Home advantage = 24 Elo**: Reflects ~54% MLB home win rate (vs ~60% NBA)
+- **K-factor = 1.0**: Much lower than NBA (8.23) because 162-game season provides more signal per team
+- **Home advantage = 23.47 Elo**: Reflects ~54% MLB home win rate (vs ~60% NBA)
 - **Altitude bonus**: Only Colorado Rockies (Coors Field, 5280 ft)
 - **Season = calendar year**: MLB runs April-October within one year (unlike NBA cross-year)
-- **Playoff detection**: October games get reduced HCA (factor 0.70)
+- **Playoff detection**: October games get reduced HCA (factor 0.934)
 - **Player scoring**: Top 10 batters by composite (HR*2 + RBI + AVG*100), scored as HR*2 + RBI + R*0.5 + SB*0.5 + AVG*100. Batting 45% / pitching 55% (pitching-heavy, reflects MLB reality)
 - **Pitching score**: Top 8 pitchers by composite ((4.50-ERA)*5 + K*0.5), scored as (4.50-ERA)*10 + K*0.5 + W*3. Scaled to match batting magnitude before blending
 - **Rolling window**: 15 games (wider than NBA's 10 due to higher game-to-game variance in baseball)

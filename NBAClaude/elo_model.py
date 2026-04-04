@@ -33,15 +33,15 @@ TEAM_TIMEZONE = {
 
 
 class NBAElo:
-    def __init__(self, base_rating=1500.0, k=8.0, home_adv=34.0,
-                 use_mov=True, player_boost=28.0, rest_factor=15.0,
-                 form_weight=10.0, travel_factor=27.0, sos_factor=5.0,
-                 playoff_hca_factor=0.50, pace_factor=38.0,
-                 division_factor=10.0, mean_reversion=5.0,
-                 b2b_penalty=25.0, road_trip_factor=0.0,
+    def __init__(self, base_rating=1500.0, k=8.23, home_adv=34.0,
+                 use_mov=True, player_boost=35.0, rest_factor=25.0,
+                 form_weight=10.0, travel_factor=28.2, sos_factor=0.0,
+                 playoff_hca_factor=0.57, pace_factor=35.0,
+                 division_factor=10.0, mean_reversion=0.0,
+                 b2b_penalty=0.0, road_trip_factor=3.47,
                  homestand_factor=0.0, win_streak_factor=0.0,
-                 altitude_factor=4.0, season_phase_factor=0.0,
-                 scoring_consistency_factor=0.0, rest_advantage_cap=0.0):
+                 altitude_factor=0.0, season_phase_factor=0.0,
+                 scoring_consistency_factor=0.0, rest_advantage_cap=2.97):
         self.base_rating   = base_rating
         self.k             = k
         self.home_adv      = home_adv

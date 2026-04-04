@@ -37,16 +37,16 @@ TEAM_TIMEZONE = {
 
 
 class NFLElo:
-    def __init__(self, base_rating=1500.0, k=20.0, home_adv=25.0,
-                 use_mov=True, player_boost=25.0, rest_factor=8.0,
-                 form_weight=15.0, travel_factor=0.0, sos_factor=13.0,
-                 playoff_hca_factor=1.2, pace_factor=0.0,
-                 division_factor=20.0, mean_reversion=10.0,
-                 b2b_penalty=0.0, road_trip_factor=0.0,
-                 homestand_factor=0.0, win_streak_factor=5.0,
-                 altitude_factor=0.0, season_phase_factor=5.0,
-                 scoring_consistency_factor=5.0, rest_advantage_cap=14.0,
-                 bye_week_factor=15.0):
+    def __init__(self, base_rating=1500.0, k=28.36, home_adv=25.55,
+                 use_mov=True, player_boost=24.61, rest_factor=0.68,
+                 form_weight=20.0, travel_factor=0.0, sos_factor=0.0,
+                 playoff_hca_factor=1.1, pace_factor=0.0,
+                 division_factor=31.33, mean_reversion=0.0,
+                 b2b_penalty=5.45, road_trip_factor=0.0,
+                 homestand_factor=20.0, win_streak_factor=20.0,
+                 altitude_factor=0.66, season_phase_factor=20.0,
+                 scoring_consistency_factor=0.0, rest_advantage_cap=3.32,
+                 bye_week_factor=0.0):
         self.base_rating   = base_rating
         self.k             = k
         self.home_adv      = home_adv

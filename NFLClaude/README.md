@@ -224,18 +224,18 @@ Every parameter in this system was chosen with the specific structure of the Nat
 
 | Parameter | Default | Rationale |
 |-----------|---------|-----------|
-| **K-factor** | 35.0 | NFL plays only 17 regular season games -- far fewer than MLB (162) or NBA (82). A much higher K means each individual game moves ratings significantly. Every win and loss matters enormously in a short season, so the system must react quickly. |
-| **Home advantage** | 28 Elo (~53.9%) | NFL home teams historically win about 53-57% of games. 28 Elo points in the standard Elo formula yields approximately 53.9% expected win rate. Combined with other home-related factors (rest, SOS, division), the effective home win rate reaches observed levels. |
+| **K-factor** | 28.36 | NFL plays only 17 regular season games -- far fewer than MLB (162) or NBA (82). A much higher K means each individual game moves ratings significantly. Every win and loss matters enormously in a short season, so the system must react quickly. |
+| **Home advantage** | 25.55 Elo (~53.6%) | NFL home teams historically win about 53-57% of games. 28 Elo points in the standard Elo formula yields approximately 53.9% expected win rate. Combined with other home-related factors (rest, SOS, division), the effective home win rate reaches observed levels. |
 | **Player scoring weight** | Passing-heavy | Quarterback play dominates football outcomes more than any single position in other sports. The player scoring composite weights passing stats (yards, TDs, passer rating) heavily, with rushing and receiving as secondary signals. |
 | **Bye week factor** | Configurable | NFL teams get one bye week per season (a week off with no game). Teams coming off a bye have historically performed better due to extra rest, preparation time, and injury recovery. The bye_week_factor parameter quantifies this advantage. |
 | **Rolling window** | 5 games | Much narrower than MLB's 15-game window because NFL teams play only 17 games per season. A 5-game window represents nearly a third of the season and captures meaningful form changes without excessive noise. |
 | **Altitude factor** | Denver-only | Only the Denver Broncos play at significant altitude (Empower Field at Mile High, 5,280 ft). The thin air affects passing, kicking distance, and player stamina. No other NFL stadium has meaningful altitude effects. |
 | **Weather impact** | Critical | Unlike indoor sports, NFL games are played outdoors in most stadiums. Snow, rain, wind, and extreme cold dramatically affect passing accuracy, kicking, and ball handling. Weather is the most impactful environmental factor in NFL prediction. |
-| **Playoff HCA factor** | 0.75 | Playoff games have reduced home advantage compared to regular season. Higher-seeded teams host, but visiting teams in the playoffs are typically strong. The 0.75 multiplier reduces home advantage in the postseason. |
+| **Playoff HCA factor** | 1.1 | Genetic optimization found playoff home advantage is slightly amplified compared to regular season. Higher-seeded teams benefit from familiar stadiums and playoff atmosphere. The 1.1 multiplier increases home advantage in the postseason. |
 | **Season regression** | 33% | At the start of each new season, all ratings regress 33% toward 1500. This accounts for roster turnover, free agency, coaching changes, the draft, and the reality that last year's team is not this year's team. |
 | **MOV formula** | log(max(1, abs(margin)) + 1) | Point margins in football follow a roughly logarithmic value curve -- the difference between a 3-point win and a 10-point win is much more informative than between a 35-point win and a 42-point win. The log transform prevents blowouts from having outsized influence. |
 | **Season calendar** | September-February (cross-year) | Unlike MLB which runs within one calendar year, the NFL season crosses the new year boundary. If month >= 9, it is the current year's season. If month <= 8, it is the previous year's season. This affects season detection and regression timing. |
-| **Rest factor** | 6.0 (centered at 7 days) | NFL teams play weekly, so rest is centered at 7 days instead of 1 day like daily sports. Extra rest (bye week = 14 days, Thursday-to-Sunday = 10 days) or short rest (Sunday-to-Thursday = 4 days) creates significant advantages and disadvantages. |
+| **Rest factor** | 0.68 (centered at 7 days) | NFL teams play weekly, so rest is centered at 7 days instead of 1 day like daily sports. Extra rest (bye week = 14 days, Thursday-to-Sunday = 10 days) or short rest (Sunday-to-Thursday = 4 days) creates significant advantages and disadvantages. |
 | **Pythagorean exponent** | ~2.37 | The Pythagorean theorem for football uses an exponent of approximately 2.37, reflecting the scoring environment in NFL games. This is much lower than NBA (~14) because football scores are lower and margins are tighter. |
 | **Division factor** | Configurable | Divisional opponents play each other twice per year and have deep familiarity. Games between division rivals tend to be closer than talent gaps suggest, reducing the predictive edge of pure ratings. |
 
@@ -357,16 +357,16 @@ Type `set <param>=<value>` or `set <alias>=<value>`. Example: `set k=20`, `set h
 
 | Parameter | Aliases | Type | Default | Description |
 |-----------|---------|------|---------|-------------|
-| `k` | `k_factor` | float | 35.0 | Elo K-factor (learning rate per game) |
+| `k` | `k_factor` | float | 28.36 | Elo K-factor (learning rate per game) |
 | `base_rating` | `base`, `rating` | float | 1500.0 | Starting Elo rating for all teams |
-| `home_adv` | `home`, `hca`, `home_advantage` | float | 28.0 | Home field advantage in Elo points |
+| `home_adv` | `home`, `hca`, `home_advantage` | float | 25.55 | Home field advantage in Elo points |
 | `use_mov` | `mov`, `margin` | bool | true | Use margin of victory adjustment |
 
 #### Player Strength
 
 | Parameter | Aliases | Type | Default | Description |
 |-----------|---------|------|---------|-------------|
-| `player_boost` | `boost`, `player` | float | 30.0 | Team-level player strength boost |
+| `player_boost` | `boost`, `player` | float | 24.61 | Team-level player strength boost |
 
 #### Margin of Victory
 
@@ -379,36 +379,36 @@ Type `set <param>=<value>` or `set <alias>=<value>`. Example: `set k=20`, `set h
 
 | Parameter | Aliases | Type | Default | Description |
 |-----------|---------|------|---------|-------------|
-| `rest_factor` | `rest` | float | 6.0 | Rest days advantage factor (centered at 7 days) |
-| `rest_advantage_cap` | `restcap`, `rest_cap` | float | 0.0 | Maximum rest advantage multiplier |
-| `bye_week_factor` | `bye`, `bye_week`, `bye_factor` | float | 10.0 | Bye week rest advantage bonus (NFL-specific) |
-| `b2b_penalty` | `b2b`, `back_to_back` | float | 10.0 | Back-to-back (short week) game penalty |
+| `rest_factor` | `rest` | float | 0.68 | Rest days advantage factor (centered at 7 days) |
+| `rest_advantage_cap` | `restcap`, `rest_cap` | float | 3.32 | Maximum rest advantage multiplier |
+| `bye_week_factor` | `bye`, `bye_week`, `bye_factor` | float | 0.0 | Bye week rest advantage bonus (NFL-specific) |
+| `b2b_penalty` | `b2b`, `back_to_back` | float | 5.45 | Back-to-back (short week) game penalty |
 | `road_trip_factor` | `roadtrip`, `road_trip` | float | 0.0 | Extended road trip penalty |
-| `homestand_factor` | `homestand` | float | 17.0 | Extended homestand bonus |
+| `homestand_factor` | `homestand` | float | 20.0 | Extended homestand bonus |
 
 #### Travel / Venue
 
 | Parameter | Aliases | Type | Default | Description |
 |-----------|---------|------|---------|-------------|
-| `travel_factor` | `travel` | float | 7.0 | Elo penalty per timezone crossed |
+| `travel_factor` | `travel` | float | 0.0 | Elo penalty per timezone crossed |
 | `east_travel_penalty` | `east_travel`, `eastbound` | float | 0.0 | Extra penalty for eastbound travel |
-| `altitude_factor` | `altitude`, `alt` | float | 4.0 | Altitude bonus (Denver Broncos only) |
+| `altitude_factor` | `altitude`, `alt` | float | 0.66 | Altitude bonus (Denver Broncos only) |
 
 #### Form / Momentum
 
 | Parameter | Aliases | Type | Default | Description |
 |-----------|---------|------|---------|-------------|
-| `form_weight` | `form` | float | 10.0 | Recent form weight |
-| `win_streak_factor` | `streak`, `win_streak` | float | 18.0 | Win/loss streak momentum factor |
-| `mean_reversion` | `reversion`, `regress` | float | 2.5 | Mean reversion after extreme results |
+| `form_weight` | `form` | float | 20.0 | Recent form weight |
+| `win_streak_factor` | `streak`, `win_streak` | float | 20.0 | Win/loss streak momentum factor |
+| `mean_reversion` | `reversion`, `regress` | float | 0.0 | Mean reversion after extreme results |
 | `season_regress` | `season_regression`, `regress_pct` | float | 0.33 | Season boundary regression fraction toward 1500 |
 
 #### Matchup Adjustments
 
 | Parameter | Aliases | Type | Default | Description |
 |-----------|---------|------|---------|-------------|
-| `sos_factor` | `sos`, `strength_of_schedule` | float | 5.0 | Strength of schedule weight |
-| `division_factor` | `division`, `div` | float | 30.0 | Divisional game confidence reducer |
+| `sos_factor` | `sos`, `strength_of_schedule` | float | 0.0 | Strength of schedule weight |
+| `division_factor` | `division`, `div` | float | 31.33 | Divisional game confidence reducer |
 | `conference_factor` | `conference`, `conf` | float | 0.0 | Conference (AFC vs NFC) game adjustment |
 | `series_adaptation` | `series`, `adaptation` | float | 0.0 | Series adaptation factor (rematches) |
 
@@ -416,7 +416,7 @@ Type `set <param>=<value>` or `set <alias>=<value>`. Example: `set k=20`, `set h
 
 | Parameter | Aliases | Type | Default | Description |
 |-----------|---------|------|---------|-------------|
-| `pace_factor` | `pace`, `tempo` | float | 7.0 | Scoring environment mismatch adjustment |
+| `pace_factor` | `pace`, `tempo` | float | 0.0 | Scoring environment mismatch adjustment |
 | `pyth_factor` | `pyth`, `pythagorean` | float | 0.0 | Pythagorean expected W% adjustment |
 | `scoring_consistency_factor` | `consistency`, `scoring_consistency` | float | 0.0 | Penalty for volatile scoring patterns |
 | `home_road_factor` | `home_road`, `split` | float | 0.0 | Team-specific home/road split bonus |
@@ -425,8 +425,8 @@ Type `set <param>=<value>` or `set <alias>=<value>`. Example: `set k=20`, `set h
 
 | Parameter | Aliases | Type | Default | Description |
 |-----------|---------|------|---------|-------------|
-| `playoff_hca_factor` | `playoff`, `playoff_hca`, `postseason` | float | 0.75 | Playoff home advantage multiplier |
-| `season_phase_factor` | `phase`, `season_phase` | float | 17.0 | Early-season dampener |
+| `playoff_hca_factor` | `playoff`, `playoff_hca`, `postseason` | float | 1.1 | Playoff home advantage multiplier |
+| `season_phase_factor` | `phase`, `season_phase` | float | 20.0 | Early-season dampener |
 
 #### K-Factor Variants
 
@@ -622,9 +622,10 @@ Results vary by season and parameter tuning. Typical ranges:
 - **Baseline accuracy**: ~65.61%
 - **Platt-calibrated accuracy**: ~65.61%
 - **Full mega-ensemble**: 66-70%
-- **LogLoss**: ~0.6271
-- **Brier score**: ~0.2185
+- **LogLoss**: ~0.6181
+- **Brier score**: ~0.2138
 - **ECE** (calibration error): ~0.049
+- **Enhanced (Elo+XGB)**: ~64.21% acc, 0.6191 LL, 0.2153 Brier (calibrated)
 
 Football is more predictable than baseball (best teams win ~75-80% of games, worst teams win ~20-25%), so accuracy in the 66-70% range on moneyline picks represents solid performance. The NFL's smaller sample size (272 regular season games vs 2,430 in MLB) means confidence intervals are wider.
 
@@ -967,6 +968,7 @@ The prediction probabilities produced by this system are statistical estimates, 
 - **Made `season_regress` configurable via settings**: Was previously hardcoded to 0.33; now loaded from `nfl_elo_settings.json` like all other parameters.
 - **Optimized Elo parameters from bayesian optimization results**: K=35, home_adv=28, player_boost=30, rest_factor=6, form_weight=10, travel_factor=7, sos_factor=5, division_factor=30, pace_factor=7, mean_reversion=2.5, win_streak_factor=18, season_phase_factor=17, bye_week_factor=10, playoff_hca_factor=0.75, b2b_penalty=10, homestand_factor=17, altitude_factor=4.
 - **Enabled previously disabled adjusters**: Travel, pace, altitude, homestand, b2b, form, win streak, mean reversion, SOS, division, and season phase factors are now active with optimized values instead of defaulting to 0.
+- **Re-optimized all Elo parameters via genetic optimization**: Genetic (DE) winner at 65.61% acc, 0.6181 LL, 0.2138 Brier, 0.0487 ECE. Enhanced Elo+XGB: 64.21% acc, 0.6191 LL, 0.2153 Brier. Updated defaults: k=28.36, home_adv=25.55, player_boost=24.61, rest_factor=0.68, form_weight=20.0, division_factor=31.33, win_streak_factor=20.0, homestand_factor=20.0, season_phase_factor=20.0, playoff_hca_factor=1.1, b2b_penalty=5.45, altitude_factor=0.66, rest_advantage_cap=3.32. Zeroed out: travel_factor, sos_factor, pace_factor, mean_reversion, road_trip_factor, scoring_consistency_factor, bye_week_factor.
 
 ---
 

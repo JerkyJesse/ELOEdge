@@ -459,16 +459,16 @@ Parameters are set with `set <param>=<value>` or `set <alias>=<value>`. After an
 
 | Parameter | Aliases | Type | Default | Description |
 |-----------|---------|------|---------|-------------|
-| `k` | `k_factor` | float | 12.0 | Elo K-factor (learning rate per game). Lower = more stable, higher = more reactive |
+| `k` | `k_factor` | float | 8.23 | Elo K-factor (learning rate per game). Lower = more stable, higher = more reactive |
 | `base_rating` | `base`, `rating` | float | 1500.0 | Starting Elo rating for all teams |
-| `home_adv` | `home`, `hca`, `home_advantage` | float | 26.0 | Home court advantage in Elo points (~60% win rate) |
+| `home_adv` | `home`, `hca`, `home_advantage` | float | 34.0 | Home court advantage in Elo points (~60% win rate) |
 | `use_mov` | `mov`, `margin` | bool | true | Use margin of victory adjustment (log-scaled) |
 
 #### Player Strength
 
 | Parameter | Aliases | Type | Default | Description |
 |-----------|---------|------|---------|-------------|
-| `player_boost` | `boost`, `player` | float | 24.0 | Team-level composite player strength (PTS + REB + AST composite) |
+| `player_boost` | `boost`, `player` | float | 35.0 | Team-level composite player strength (PTS + REB + AST composite) |
 
 *Note: `starter_boost`, `bullpen_factor`, `opp_pitcher_factor` exist in the shared codebase but are unused (zeroed) for NBA -- there are no pitcher concepts in basketball.*
 
@@ -483,19 +483,19 @@ Parameters are set with `set <param>=<value>` or `set <alias>=<value>`. After an
 
 | Parameter | Aliases | Type | Default | Description |
 |-----------|---------|------|---------|-------------|
-| `rest_factor` | `rest` | float | 18.0 | Rest days advantage factor |
-| `rest_advantage_cap` | `restcap`, `rest_cap` | float | 0.0 | Maximum rest advantage multiplier |
-| `b2b_penalty` | `b2b`, `back_to_back` | float | 18.0 | Back-to-back game penalty (critical for NBA) |
-| `road_trip_factor` | `roadtrip`, `road_trip` | float | 0.0 | Extended road trip penalty (3+ consecutive away games) |
+| `rest_factor` | `rest` | float | 25.0 | Rest days advantage factor |
+| `rest_advantage_cap` | `restcap`, `rest_cap` | float | 2.97 | Maximum rest advantage multiplier |
+| `b2b_penalty` | `b2b`, `back_to_back` | float | 0.0 | Back-to-back game penalty (critical for NBA) |
+| `road_trip_factor` | `roadtrip`, `road_trip` | float | 3.47 | Extended road trip penalty (3+ consecutive away games) |
 | `homestand_factor` | `homestand` | float | 0.0 | Extended homestand bonus |
 
 #### Travel & Venue
 
 | Parameter | Aliases | Type | Default | Description |
 |-----------|---------|------|---------|-------------|
-| `travel_factor` | `travel` | float | 15.0 | Elo penalty per timezone crossed (jet lag, circadian disruption) |
+| `travel_factor` | `travel` | float | 28.2 | Elo penalty per timezone crossed (jet lag, circadian disruption) |
 | `east_travel_penalty` | `east_travel`, `eastbound` | float | (default) | Extra penalty for eastbound travel (harder on circadian rhythm) |
-| `altitude_factor` | `altitude`, `alt` | float | 3.0 | Denver altitude bonus multiplier (5,280 ft elevation) |
+| `altitude_factor` | `altitude`, `alt` | float | 0.0 | Denver altitude bonus multiplier (5,280 ft elevation) |
 
 *Note: `park_factor_weight` exists but is unused for NBA -- all courts are identical dimensions.*
 
@@ -503,9 +503,9 @@ Parameters are set with `set <param>=<value>` or `set <alias>=<value>`. After an
 
 | Parameter | Aliases | Type | Default | Description |
 |-----------|---------|------|---------|-------------|
-| `form_weight` | `form` | float | 5.0 | Recent form weight (hot/cold streaks) |
+| `form_weight` | `form` | float | 10.0 | Recent form weight (hot/cold streaks) |
 | `win_streak_factor` | `streak`, `win_streak` | float | 0.0 | Win/loss streak momentum factor |
-| `mean_reversion` | `reversion`, `regress` | float | 2.0 | Mean reversion after extreme results |
+| `mean_reversion` | `reversion`, `regress` | float | 0.0 | Mean reversion after extreme results |
 | `season_regress` | `season_regression`, `regress_pct` | float | 0.33 | Season boundary regression fraction (33% toward mean) |
 
 #### Matchup Adjustments
@@ -513,7 +513,7 @@ Parameters are set with `set <param>=<value>` or `set <alias>=<value>`. After an
 | Parameter | Aliases | Type | Default | Description |
 |-----------|---------|------|---------|-------------|
 | `sos_factor` | `sos`, `strength_of_schedule` | float | 0.0 | Strength of schedule weight |
-| `division_factor` | `division`, `div` | float | 5.0 | Divisional game confidence reducer |
+| `division_factor` | `division`, `div` | float | 10.0 | Divisional game confidence reducer |
 | `series_adaptation` | `series`, `adaptation` | float | (default) | Series adaptation factor (rematches) |
 
 *Note: `interleague_factor` exists but is unused for NBA -- no interleague concept.*
@@ -522,17 +522,17 @@ Parameters are set with `set <param>=<value>` or `set <alias>=<value>`. After an
 
 | Parameter | Aliases | Type | Default | Description |
 |-----------|---------|------|---------|-------------|
-| `pace_factor` | `pace`, `tempo` | float | 20.0 | Run/scoring environment mismatch penalty |
+| `pace_factor` | `pace`, `tempo` | float | 35.0 | Run/scoring environment mismatch penalty |
 | `pyth_factor` | `pyth`, `pythagorean` | float | (default) | Pythagorean expected W% adjustment (exp = 14) |
-| `scoring_consistency_factor` | `consistency`, `scoring_consistency` | float | 2.5 | Penalty for volatile scoring (high game-to-game variance) |
+| `scoring_consistency_factor` | `consistency`, `scoring_consistency` | float | 0.0 | Penalty for volatile scoring (high game-to-game variance) |
 | `home_road_factor` | `home_road`, `split` | float | (default) | Team-specific home/road split bonus |
 
 #### Season & Phase
 
 | Parameter | Aliases | Type | Default | Description |
 |-----------|---------|------|---------|-------------|
-| `playoff_hca_factor` | `playoff`, `playoff_hca`, `postseason` | float | 0.45 | Playoff home advantage multiplier (reduced from regular season) |
-| `season_phase_factor` | `phase`, `season_phase` | float | 2.0 | Early-season dampener (less confident when ratings are immature) |
+| `playoff_hca_factor` | `playoff`, `playoff_hca`, `postseason` | float | 0.57 | Playoff home advantage multiplier (reduced from regular season) |
+| `season_phase_factor` | `phase`, `season_phase` | float | 0.0 | Early-season dampener (less confident when ratings are immature) |
 
 #### K-Factor Variants
 
@@ -776,13 +776,14 @@ pip install torch --index-url https://download.pytorch.org/whl/cu121
 Results vary by season and parameter tuning. Representative ranges:
 
 ```
-Baseline accuracy:         ~69.02%
-Platt-calibrated accuracy: ~69.02%
+Baseline accuracy:         ~68.76%
+Platt-calibrated accuracy: ~68.76%
 Mega-ensemble (31 models): 67-71%
 
-Log Loss:   ~0.5972
-Brier:      ~0.2037
-ECE:        ~0.028
+Log Loss:   ~0.5877
+Brier:      ~0.2009
+ECE:        ~0.029
+Enhanced (Elo+XGB):        ~67.36% acc, 0.5924 LL, 0.2026 Brier (calibrated)
 ```
 
 ---
@@ -1110,6 +1111,7 @@ This software is provided for **educational and research purposes only**. It is 
 - **Added NaN guard for momentum autocorrelation**: `enhanced_model.py` now guards against NaN values when computing momentum autocorrelation features, preventing XGBoost from receiving invalid inputs.
 - **Made season_regress configurable**: The season boundary regression fraction was hardcoded to 0.33. It is now a configurable setting (`season_regress`) loaded from `nba_elo_settings.json` and adjustable via `set regress_pct=0.33`.
 - **Optimized Elo parameters**: Bayesian optimization results applied as new defaults: k=12.0, home_adv=26.0, player_boost=24.0, rest_factor=18.0, form_weight=5.0, travel_factor=15.0, pace_factor=20.0, division_factor=5.0, mean_reversion=2.0, b2b_penalty=18.0, altitude_factor=3.0, playoff_hca_factor=0.45, season_phase_factor=2.0, scoring_consistency_factor=2.5.
+- **Re-optimized all Elo parameters via genetic optimization**: Genetic (DE) winner at 68.76% acc, 0.5877 LL, 0.2009 Brier, 0.0294 ECE. Enhanced Elo+XGB: 67.36% acc, 0.5924 LL, 0.2026 Brier. Updated defaults: k=8.23, home_adv=34.0, player_boost=35.0, rest_factor=25.0, form_weight=10.0, travel_factor=28.2, pace_factor=35.0, division_factor=10.0, playoff_hca_factor=0.57, rest_advantage_cap=2.97, road_trip_factor=3.47. Zeroed out: sos_factor, mean_reversion, b2b_penalty, homestand_factor, win_streak_factor, altitude_factor, season_phase_factor, scoring_consistency_factor.
 
 ---
 

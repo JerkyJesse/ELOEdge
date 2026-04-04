@@ -77,23 +77,23 @@ TEAM_TIMEZONE = {
 class MLBElo:
     K_PITCHER = 6  # pitcher rating update speed
 
-    def __init__(self, base_rating=1500.0, k=1.0, home_adv=23.52,
-                 use_mov=True, player_boost=2.63, starter_boost=11.69,
+    def __init__(self, base_rating=1500.0, k=1.0, home_adv=23.47,
+                 use_mov=True, player_boost=2.54, starter_boost=9.61,
                  rest_factor=0.0,
-                 form_weight=3.06, travel_factor=0.0, sos_factor=0.0,
-                 playoff_hca_factor=0.968, pace_factor=8.26,
+                 form_weight=0.0, travel_factor=0.0, sos_factor=0.0,
+                 playoff_hca_factor=0.934, pace_factor=5.0,
                  division_factor=0.0, mean_reversion=10.0,
-                 pyth_factor=16.0, home_road_factor=0.027,
+                 pyth_factor=16.0, home_road_factor=4.04,
                  mov_base=0.3,
-                 b2b_penalty=44.63, road_trip_factor=0.0,
-                 homestand_factor=1.57, win_streak_factor=0.0,
-                 altitude_factor=0.137, season_phase_factor=10.0,
-                 scoring_consistency_factor=0.0, rest_advantage_cap=3.07,
-                 park_factor_weight=0.015,
-                 mov_cap=18.19, east_travel_penalty=0.0,
-                 series_adaptation=8.0, interleague_factor=2.79,
-                 bullpen_factor=6.34, opp_pitcher_factor=16.0,
-                 k_decay=2.1, surprise_k=0.0,
+                 b2b_penalty=26.51, road_trip_factor=0.0,
+                 homestand_factor=1.41, win_streak_factor=0.0,
+                 altitude_factor=12.48, season_phase_factor=9.35,
+                 scoring_consistency_factor=0.0, rest_advantage_cap=4.14,
+                 park_factor_weight=0.0,
+                 mov_cap=19.9, east_travel_penalty=0.0,
+                 series_adaptation=3.92, interleague_factor=2.04,
+                 bullpen_factor=6.43, opp_pitcher_factor=18.0,
+                 k_decay=2.07, surprise_k=0.0,
                  elo_scale=400.0):
         self.base_rating   = base_rating
         self.k             = k

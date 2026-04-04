@@ -970,6 +970,7 @@ The prediction probabilities produced by this system are statistical estimates, 
 - **Made `season_regress` configurable via settings**: The season regression fraction was previously hardcoded to 0.33; it can now be tuned via `set season_regress=<value>` like any other parameter.
 - **Optimized Elo parameters from bayesian optimization results**: Updated defaults based on bayesian optimization: K 3.01->5.0, home_adv 29.3->26.0, player_boost 15.43->10.0, starter_boost 4.89->5.0, rest_factor 0.0->12.0, form_weight 6.94->4.0, travel_factor 0.0->8.0, sos_factor 12.48->10.0, playoff_hca_factor 1.3->1.0, pace_factor 30.0->10.0, division_factor 0.0->5.0, mean_reversion 0.0->2.5, b2b_penalty 29.46->18.0, altitude_factor 0.237->4.0, overtime_factor 0.0->5.0.
 - **Enabled previously disabled adjusters**: Rest, travel, division, mean_reversion, and overtime factors were previously set to 0.0 (disabled). Bayesian optimization found non-zero values that improve calibration, so these adjusters are now active by default.
+- **Fixed `rest_days` default from 1 to 2 in `elo_model.py`**: The `_get_rest_days()` method was defaulting to 1 day of rest when no prior game was found. Changed to 2 days, which better reflects NHL scheduling (teams typically play every other day). This affected 3 lines in elo_model.py.
 
 ---
 

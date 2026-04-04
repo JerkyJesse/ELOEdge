@@ -30,9 +30,9 @@ First run auto-downloads game data (ESPN API), player stats, and injury reports 
 - `main.py` -> CLI entry point, `dispatch()` routes all commands, team name input triggers prediction flow
 
 **NFL-specific design decisions:**
-- K-factor = 35 (fewer games per season than NBA, each game matters more)
-- Home advantage = 48 Elo (~57% NFL home win rate)
-- Rest factor = 40, centered at 7 days (NFL teams play weekly, rest is huge)
+- K-factor = 28.36 (fewer games per season than NBA, each game matters more)
+- Home advantage = 25.55 Elo (~53.6% NFL home win rate)
+- Rest factor = 0.68, centered at 7 days (NFL teams play weekly)
 - MOV formula: `log(max(1, abs(margin)) + 1)` (NFL-specific)
 - Season spans two calendar years: `season = year if month >= 9 else year - 1`
 - Only Denver Broncos get altitude bonus (5280ft)
