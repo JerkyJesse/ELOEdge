@@ -1,6 +1,6 @@
 """
-Run the full optimization workflow for a sport non-interactively.
-Usage: python run_sport_workflow.py <sport_dir>
+Run the full NHL optimization workflow non-interactively.
+Usage: python run_sport_workflow.py
 
 v3 workflow with 7-phase per-model mega optimizer:
   Step 1: python main.py (baseline runs automatically)
@@ -14,30 +14,24 @@ v3 workflow with 7-phase per-model mega optimizer:
 """
 import sys, os, subprocess, time, datetime
 
-def run_workflow(sport_dir):
-    sport_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), sport_dir)
-    if not os.path.isdir(sport_path):
-        print(f"ERROR: {sport_path} not found")
-        return
-
-    sport_name = sport_dir.upper()
+def run_workflow():
+    sport_path = os.path.dirname(os.path.abspath(__file__))
+    sport_name = "NHL"
     log_file = os.path.join(sport_path, f"{sport_name.lower()}_optimization_log.txt")
 
-    # Commands to pipe through stdin
-    # montecarlo has 1 prompt (permutations), kelly has 2 prompts (fraction, bankroll)
     lines = []
-    lines.append("autoopt")          # Step 2-4: Grid->Genetic->Bayesian Elo opt
-    lines.append("results")          # Step 5: Compare optimizer outputs
-    lines.append("backtest")         # Step 6: Refit Platt
-    lines.append("mega")             # Step 7: Mega-ensemble baseline backtest
-    lines.append("mega optimize")    # Step 8: 7-phase per-model mega optimizer
-    lines.append("purgedcv")         # Step 9a
-    lines.append("pbo")              # Step 9b
-    lines.append("montecarlo")       # Step 9c
-    lines.append("")                 # accept default permutations
-    lines.append("kelly")            # Step 10
-    lines.append("")                 # accept default kelly fraction
-    lines.append("")                 # accept default bankroll
+    lines.append("autoopt")
+    lines.append("results")
+    lines.append("backtest")
+    lines.append("mega")
+    lines.append("mega optimize")
+    lines.append("purgedcv")
+    lines.append("pbo")
+    lines.append("montecarlo")
+    lines.append("")
+    lines.append("kelly")
+    lines.append("")
+    lines.append("")
     lines.append("quit")
 
     stdin_data = "\n".join(lines) + "\n"
@@ -95,8 +89,4 @@ def run_workflow(sport_dir):
 
 
 if __name__ == "__main__":
-    if len(sys.argv) < 2:
-        print("Usage: python run_sport_workflow.py <sport_dir>")
-        sys.exit(1)
-
-    run_workflow(sys.argv[1])
+    run_workflow()

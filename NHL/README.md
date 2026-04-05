@@ -1,4 +1,4 @@
-# NHL Moneyball -- 35-Model Mega-Ensemble
+# SharpStack-NHL -- 35-Model Mega-Ensemble
 
 A production-grade NHL game prediction system that fuses 35 independent models -- spanning Elo ratings, gradient boosting, Hidden Markov Models, Kalman filters, PageRank, neural networks, survival analysis, information theory, game theory, and classical hockey analytics -- into a single calibrated probability through a walk-forward meta-learner. Every model trains on real NHL data pulled from completely free APIs (ESPN public API for scores, schedules, player stats, goalie stats, and injuries; Open-Meteo for weather). The system includes a full Predicts $1 binary contract trading ledger with Kelly criterion position sizing, live score tracking with period display (P1, P2, P3, OT, SO), auto-settlement, and monthly P&L charting. All 82-game-season parameters are tuned through a 7-phase exhaustive optimizer with multithreaded backtesting and optional GPU acceleration.
 

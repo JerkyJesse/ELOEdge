@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What This Is
 
-NBA game prediction system combining Elo ratings with an XGBoost ensemble, with Predicts $1 contract trading ledger. Interactive CLI app — no web server, no tests framework, no build system.
+NBA game prediction system combining Elo ratings with a 35-model mega-ensemble, with Predicts $1 contract trading ledger. Interactive CLI app -- no web server, no test framework, no build system.
 
 ## Running
 
@@ -17,31 +17,216 @@ First run auto-downloads game data (NBA API), player stats, and injury reports (
 
 ## Architecture
 
-**Two-stage prediction pipeline:**
-1. **Elo model** (`elo_model.py` → `NBAElo` class) — base team ratings adjusted for home court, altitude, player strength, rest days, travel fatigue, pace mismatch, injuries, and strength of schedule
-2. **XGBoost ensemble** (`enhanced_model.py`) — 80% Elo / 20% XGBoost (default `elo_weight=0.8`) using 31 rolling features per team (10-game window via `TeamTracker`, includes Pythagorean win expectation, streaks, consistency, and trend)
-3. **Platt calibration** (`platt.py`) — logistic regression on raw probabilities for well-calibrated outputs
+**Three-stage prediction pipeline:**
+1. **Elo model** (`elo_model.py` → `NBAElo` class) -- base team ratings adjusted for home court, altitude, player strength, rest days, travel fatigue, pace mismatch, injuries, and strength of schedule
+2. **XGBoost ensemble** (`enhanced_model.py`) -- 80% Elo / 20% XGBoost (default `elo_weight=0.8`) using 31 rolling features per team (10-game window via `TeamTracker`, includes Pythagorean win expectation, streaks, consistency, and trend)
+3. **Mega-ensemble** (`mega_predictor.py` + `mega_backtest.py`) -- 35 base models stacked via a meta-learner (XGBoost, ridge, or logistic). Produces a bounded adjustment (+/- max_adj, default 0.08) on top of the Elo+XGBoost probability. Models span 7 tiers: Core (Elo, XGBoost), Proven (HMM, Kalman, PageRank, LightGBM, CatBoost, MLP, LSTM), Exotic (GARCH, Fourier/Wavelet, Survival, Copula), Info/Physics (Shannon Entropy, Momentum, Markov Chain, Clustering, Game Theory), Classical Ratings (Poisson, Glicko-2, Bradley-Terry, Monte Carlo, Random Forest), Sports-Specific (SRS, Colley Matrix, Log5, PythagenPat, Exponential Smoothing, Mean Reversion), Additional (SVM, Fibonacci, EVT, Benford), and Data Enrichment (Weather, Odds).
+4. **Platt calibration** (`platt.py`) -- logistic regression on raw probabilities for well-calibrated outputs
 
 **Data flow:**
 - `data_games.py` / `data_players.py` → download from NBA API with 6-hour cache (`config.is_cache_stale`)
 - `injuries.py` → ESPN JSON API with 4-hour cache
+- `weather.py` → Open-Meteo API (free, no key) with 2-hour cache
+- `odds_tracker.py` → The Odds API (free tier, 500 req/month) for moneyline odds + CLV
+- `kalshi.py` → Kalshi public API for live contract prices
 - `build_model.py` → constructs `NBAElo` from settings + game CSV, applies season regression, sets player scores
-- `backtest.py` → walk-forward backtest, also houses grid search and genetic (`scipy.optimize.differential_evolution`) optimizer
+- `backtest.py` → walk-forward backtest, also houses grid search, genetic (`scipy.optimize.differential_evolution`), and Bayesian (GP + EI) optimizers
+- `mega_backtest.py` → walk-forward backtest for all 35 models with meta-learner training
+- `mega_optimizer.py` → 7-phase per-model optimization (solo tuning, tournament, ablation, DE fine-tuning, validation)
+- `mega_predictor.py` → live predictions using all 35 models (replays history, loads trained meta-learner)
 - `main.py` → CLI entry point, `dispatch()` routes all commands, team name input triggers prediction flow
 
 **State files (all gitignored, generated at runtime):**
-- `nba_elo_settings.json` — tunable parameters (K-factor, home advantage, etc.)
-- `nba_elo_ratings.json` — current team Elo ratings
-- `nba_platt_scaler.json` / `nba_isotonic_scaler.json` — calibration scalers
-- `nba_enhanced_model.json` — saved XGBoost model weights
-- `predicts_lots.csv` — trade ledger (positions, P&L)
+- `nba_elo_settings.json` -- tunable Elo parameters (39 params: K-factor, home advantage, etc.)
+- `nba_elo_ratings.json` -- current team Elo ratings
+- `nba_platt_scaler.json` / `nba_isotonic_scaler.json` / `nba_beta_scaler.json` -- calibration scalers
+- `nba_enhanced_model.json` / `nba_xgb_model.json` -- saved XGBoost model weights
+- `nba_mega_settings.json` -- mega-ensemble model switches, per-model hyperparameters, meta-learner config
+- `nba_meta_xgb.json` / `nba_meta_learner.json` -- trained meta-learner weights
+- `nba_enhanced_features.npz` -- saved enhanced feature matrix for SHAP analysis
+- `weather_cache.json` -- cached weather API responses (2-hour TTL)
+- `predicts_lots.csv` -- trade ledger (positions, P&L)
 
 **Key patterns:**
 - All settings load/save through `config.py` (`load_elo_settings` / `save_elo_settings`)
 - Color output uses wrapper functions in `color_helpers.py` (`cok`, `cerr`, `cwarn`, `chi`, `cdim`, `cbold`), not raw colorama
 - The `NBAElo` class stores per-team state in dicts/defaultdicts on the instance (ratings, last game dates, recent results, player scores, etc.)
-- Optimizer objective is `LogLoss * 8 + Brier * 40` — this weighting is intentional
+- Optimizer objective is `LogLoss * 8 + Brier * 40` -- this weighting is intentional
 - `backtest_model(..., fit_platt=True)` should only be called for user-facing runs, never inside optimizer loops (leakage + speed)
+- Mega-ensemble config managed through `mega_config.py` (model registry, switches, per-model hyperparams)
+- Smart caching via `cache_utils.py` -- season-aware staleness checks (different refresh rates for games, players, odds, weather)
+
+## File Map
+
+### Core System
+| File | Purpose |
+|------|---------|
+| `main.py` | CLI entry point, `dispatch()` routes all commands |
+| `config.py` | Constants, 30 NBA teams, divisions, settings I/O |
+| `elo_model.py` | `NBAElo` class (ratings, predictions, 24+ adjusters) |
+| `build_model.py` | Model training with season regression |
+| `data_games.py` | Game data download via nba_api |
+| `data_players.py` | Player stats download + team scoring |
+| `backtest.py` | All backtesting & optimization (~2100 lines) |
+| `enhanced_model.py` | XGBoost ensemble + SHAP + TeamTracker |
+| `platt.py` | Calibration (Platt, isotonic, beta, regression) |
+| `metrics.py` | Log loss, Brier, ECE, MCE, BSS, conformal |
+| `elo_set_handler.py` | Shared handler for `set param=value` commands (39 Elo params) |
+| `single_param_opt.py` | Coordinate descent optimizer (one param at a time) |
+| `cache_utils.py` | Season-aware smart caching for all API data |
+
+### Mega-Ensemble (35 models)
+| File | Purpose |
+|------|---------|
+| `mega_predictor.py` | `MegaPredictor` class: live predictions using all 35 models |
+| `mega_backtest.py` | Walk-forward backtest for full mega-ensemble + meta-learner training |
+| `mega_optimizer.py` | 7-phase per-model optimizer (solo, tournament, ablation, DE, validation) |
+| `mega_config.py` | Model registry, on/off switches, per-model hyperparams, `mega set` handler |
+| `meta_learner.py` | `MetaLearner` class: XGBoost/ridge/logistic stacking combiner |
+
+### Individual Base Models
+| File | Purpose |
+|------|---------|
+| `hmm_model.py` | Hidden Markov Model (hot/cold team states) |
+| `kalman_model.py` | Kalman filter (latent strength estimation) |
+| `network_model.py` | PageRank + HITS (network/graph analysis) |
+| `gbm_models.py` | LightGBM + CatBoost gradient boosting |
+| `nn_models.py` | MLP + LSTM neural networks (requires PyTorch) |
+| `random_forest_model.py` | Random Forest (bagging diversity) |
+| `volatility_model.py` | GARCH volatility + Lyapunov exponent + Hurst exponent |
+| `signal_model.py` | Fourier / wavelet (cycle detection) |
+| `survival_model.py` | Survival analysis (streak hazard rates) |
+| `copula_model.py` | Copula (offense/defense joint dependency) |
+| `information_theory_model.py` | Shannon entropy + KL divergence |
+| `momentum_model.py` | Newtonian momentum / inertia model |
+| `markov_chain_model.py` | Markov chain (transition matrices) |
+| `clustering_model.py` | k-Means team archetypes |
+| `game_theory_model.py` | Nash equilibrium + style matchups |
+| `poisson_model.py` | Poisson / Dixon-Coles (score distributions) |
+| `glicko_model.py` | Glicko-2 (uncertainty-aware ratings) |
+| `bradley_terry_model.py` | Bradley-Terry MLE (paired comparison) |
+| `monte_carlo_model.py` | Monte Carlo simulation (2000 sims default) |
+| `classic_models.py` | SRS, Colley Matrix, Log5, PythagenPat, Exponential Smoothing, Mean Reversion |
+| `svm_model.py` | SVM classifier (RBF kernel + Platt scaling) |
+| `fibonacci_model.py` | Fibonacci retracement (EMA-smoothed support/resistance levels) |
+| `evt_model.py` | Extreme Value Theory (Generalized Pareto tail risk) |
+| `benford_model.py` | Benford's Law (chi-squared scoring anomaly detection) |
+
+### Data Enrichment
+| File | Purpose |
+|------|---------|
+| `odds_tracker.py` | Live odds via The Odds API (free tier), CLV tracking |
+| `weather.py` | Weather impact via Open-Meteo API (free, no key) |
+| `kalshi.py` | Kalshi public API for live contract prices + auto-Kelly |
+| `injuries.py` | ESPN injury report + Elo impact scoring |
+
+### Trading & Display
+| File | Purpose |
+|------|---------|
+| `predict_ledger.py` | Contract ledger management (add, sell, resolve, mark, invert) |
+| `live_scores.py` | Live NBA scores via NBA Stats API, 60s refresh loop |
+| `auto_resolve.py` | Auto-settle finished trades against live final scores |
+| `html_generator.py` | Blogger-ready HTML prediction tables |
+| `help_system.py` | Help text for all commands |
+| `accuracy_test.py` | Quick walk-forward accuracy test |
+| `color_helpers.py` | Colorama terminal formatting (`cok`, `cerr`, `cwarn`, `chi`, `cdim`, `cbold`) |
+
+### Utility Scripts (standalone)
+| File | Purpose |
+|------|---------|
+| `run_optimize.py` | Standalone optimization runner |
+| `accuracy_optimize.py` | Accuracy-focused optimization |
+| `run_enhanced_all.py` | Run enhanced backtest standalone |
+| `quick_optimizer.py` | Quick parameter sweep |
+| `sweep_enhanced.py` | Enhanced parameter sweep |
+
+## Data Files (generated at runtime, all gitignored)
+
+### API Data Caches
+- `nba_recent_games.csv` -- Game history (2 years, 6-hour cache)
+- `nba_player_stats.csv` -- Player leaders (6-hour cache)
+- `weather_cache.json` -- Open-Meteo weather API responses (2-hour TTL)
+
+### Model State
+- `nba_elo_ratings.json` -- Current team Elo ratings (30 teams)
+- `nba_elo_settings.json` -- Tuned Elo parameters (39 params)
+- `nba_platt_scaler.json` -- Platt calibration coefficients
+- `nba_isotonic_scaler.json` -- Isotonic calibration mappings
+- `nba_beta_scaler.json` -- Beta calibration (a, b, c params)
+- `nba_enhanced_model.json` -- XGBoost ensemble metadata
+- `nba_xgb_model.json` -- XGBoost model weights
+- `nba_enhanced_features.npz` -- Saved feature matrix for SHAP analysis
+
+### Mega-Ensemble State
+- `nba_mega_settings.json` -- Model switches, per-model hyperparams, meta-learner config
+- `nba_meta_xgb.json` -- Trained meta-learner XGBoost weights
+- `nba_meta_learner.json` -- Meta-learner state (feature names, importance)
+
+### Optimization Results
+- `nba_grid_search.csv` -- Grid search scored parameter combos
+- `nba_bayesian_results.csv` -- Bayesian optimization trial history
+- `nba_genetic_results.csv` -- Genetic optimizer results
+- `nba_backtest_predictions.csv` -- Per-game backtest predictions
+- `nba_calibration.csv` -- 10-bin calibration table
+
+### Trading & Display
+- `predicts_lots.csv` -- Trading ledger (positions, P&L)
+- `today_nba_predictions.html` -- Blogger-ready HTML predictions
+- `today_nba_predictions.txt` -- Plain-text predictions
+
+## Key NBA-Specific Design Choices
+
+### Elo Parameters (defaults from `config.load_elo_settings`)
+- **K-factor = 8.23**: Moderate K for 82-game season
+- **Home advantage = 34.0 Elo**: Reflects ~60% NBA home win rate
+- **player_boost = 24.61**: Team player strength boost from composite scoring
+- **rest_factor = 12.23**: Rest days impact (significant in NBA back-to-backs)
+- **b2b_penalty = 75.0**: Back-to-back game fatigue penalty (high in NBA)
+- **travel_factor = 10.0**: Cross-country travel fatigue
+- **sos_factor = 10.0**: Strength of schedule adjustment
+- **pace_factor = 19.0**: Pace mismatch adjustment
+- **division_factor = 5.0**: Divisional rivalry familiarity
+- **altitude_factor = 12.48**: Denver Nuggets altitude bonus (5280 ft)
+- **playoff_hca_factor = 0.7**: Reduced home advantage in playoffs
+- **season_regress = 0.33**: 33% pull toward mean at season boundaries
+
+### Mega-Ensemble NBA Defaults (from `mega_backtest.SPORT_DEFAULTS`)
+- **window = 10**: Rolling feature window (10-game for NBA's 82-game season)
+- **min_train = 400**: Games before meta-learner starts predicting
+- **retrain_every = 80**: Retrain ML models every 80 games
+- **kalman_process_noise = 0.5**: Kalman filter process noise
+- **kalman_measurement_noise = 8.0**: Kalman filter measurement noise
+- **hmm_min_games = 10**: Minimum games before HMM predictions
+- **pyth_exp = 13.91**: Pythagorean exponent for point-based win estimation
+
+### Other NBA-Specific Design
+- **Season = cross-year**: NBA runs Oct-Jun spanning two calendar years; season detection uses `year + 1 if month >= 10`
+- **82-game season**: More data points than NFL (17) but fewer than MLB (162)
+- **No pitcher/goalie system**: Unlike MLB/NHL, no individual player sub-ratings
+- **Player scoring**: Points, assists, rebounds for scoring composite; offensive/defensive split
+- **Data source**: `nba_api` package for game logs and player stats
+- **Division awareness**: `config.same_division()` for divisional rivalry adjustments
+- **Altitude**: Only Denver gets altitude bonus (5280 ft)
+
+## Mega-Ensemble
+
+The `mega_predictor.py` module implements a 35-model mega-ensemble predictor. Each model runs independently on the same walk-forward game loop, producing a raw probability. A meta-learner (Ridge, Logistic, or XGBoost) combines all 35 outputs into a single calibrated adjustment that is clamped to +/- `max_adj` (default 0.08) around the Elo anchor probability.
+
+**Key commands:**
+- `mega` -- Run full mega-ensemble backtest with all enabled models
+- `mega optimize` -- 7-phase per-model exhaustive optimization (54 hyperparameters)
+- `mega quick` -- Quick mega optimization (Phases 0-1 only)
+- `mega tune` -- Per-model solo optimization (same as mega quick)
+- `mega tournament` -- Head-to-head model comparison (Phase 2 only)
+- `mega ablation` -- Ablation study: test each model's contribution, auto-prune weak ones
+- `mega models` -- Show all 35 models with ON/OFF status by tier
+- `mega on <model>` / `mega off <model>` -- Enable/disable individual models (or `mega on all`)
+- `mega settings` -- Show all mega parameter values
+- `mega set <param>=<value>` -- Set mega parameters (e.g., `mega set max_adj=0.10`, `mega set meta=ridge`)
+
+**Model tiers:** Tier 0 (Elo, XGBoost), Tier 1 (HMM, Kalman, PageRank, LightGBM, CatBoost, MLP, LSTM), Tier 2 (GARCH, Fourier, Survival, Copula), Tier 3 (InfoTheory, Momentum, Markov, Clustering, GameTheory), Tier 4 (Poisson, Glicko-2, Bradley-Terry, Monte Carlo, Random Forest), Tier 5 (SRS, Colley, Log5, Pythagorean, ExpSmoothing, MeanReversion), Tier 6 (Weather, Odds), Tier 7 (SVM, Fibonacci, EVT, Benford).
+
+All 35 models run in parallel via `ThreadPoolExecutor`. Settings stored in `nba_mega_settings.json`.
 
 ## Backtesting & Optimization
 
@@ -249,9 +434,11 @@ Enter a team name to start a prediction. Core commands:
 
 **Data & Display**: `all`, `refresh`, `players`, `settings`, `injuries`, `today`/`html`, `tomorrow`
 
+**Data Enrichment**: `odds`, `kalshi`, `weather`
+
 **Backtesting**: `backtest`, `enhanced`, `enhanced decay`
 
-**Optimization**: `grid`, `genetic`, `bayesian`, `autoopt`, `superopt`, `results`
+**Elo Optimization**: `grid`, `genetic`, `bayesian`, `autoopt`, `superopt`, `singleopt`, `results`
 
 **Validation**: `purgedcv`, `cpcv`, `pbo`, `montecarlo`, `convergence`, `sliding`
 
@@ -259,18 +446,40 @@ Enter a team name to start a prediction. Core commands:
 
 **Analysis**: `shap`, `kelly`
 
-**Trading**: `predicts`, `resolve`, `sell`, `mark`, `live`, `chart`, `invert`, `autoresolve`
+**Mega-Ensemble (35 models)**:
+- `mega` -- Run mega-ensemble backtest (all enabled models)
+- `mega optimize` -- 7-phase per-model optimization (all phases, takes hours)
+- `mega quick` -- Quick mega optimization (Phases 0-1 only)
+- `mega tune` -- Per-model solo optimization (same as mega quick)
+- `mega tournament` -- Head-to-head model tournament (Phase 2)
+- `mega ablation` -- Test each model's individual contribution, auto-prune weak ones
+- `mega models` -- Show all 35 models with ON/OFF status by tier
+- `mega on <model>` / `mega off <model>` -- Enable/disable individual models (or `mega on all`)
+- `mega settings` -- Show all mega parameter values
+- `mega set <param>=<value>` -- Set mega parameter (e.g., `mega set max_adj=0.10`, `mega set meta=ridge`)
 
-**Settings**: `set k=13.3`, `set home=50`, `set boost=0`, `set rest=5`, `set travel=30`, `set sos=0`, `set pace=35`, `set playoff=0.7`, `set form=0`
+**Trading**: `predicts`, `balance`, `resolve`, `sell`, `mark`, `invert`, `chart`, `live`, `autoresolve`, `autoresolve on/off`
+
+**Elo Settings** (39 params, type `set` to see all):
+- `set k=8`, `set home=34`, `set boost=24`, `set rest=12`, `set b2b=75`
+- `set travel=10`, `set pace=19`, `set sos=10`, `set div=5`
+- `set altitude=12`, `set playoff=0.7`
+- `set kelly=quarter`, `set balance=1000`, `set autoresolve=true`
 
 `help` for overview, `help <command>` for details, `help advanced` for all validation commands, `quit` to exit.
 
 ## Conventions
 
 - Python 3.8+ compatibility (no walrus operators, no `match` statements)
-- No test framework — validation is via `backtest` command and `accuracy_test.py` (run manually: `python accuracy_test.py [label]`)
+- No test framework -- validation is via `backtest` command and `accuracy_test.py` (run manually: `python accuracy_test.py [label]`)
 - All data files use `nba_` prefix; temp files use `temp_` prefix (both gitignored)
 - Settings are tuned via `set param=value` CLI command or optimizer; changes require `backtest` rerun to refit Platt scaler
 - Color output uses `color_helpers.py` wrappers (`cok`, `cerr`, `cwarn`, `chi`, `cdim`, `cbold`), never raw colorama
-- Optimizer objective is `LogLoss * 8 + Brier * 40` — this weighting is intentional and should not be changed casually
+- Optimizer objective is `LogLoss * 8 + Brier * 40` -- this weighting is intentional and should not be changed casually
 - Team lookup is fuzzy: `NBAElo.find_team()` accepts full names, abbreviations, partial matches, and close matches via `difflib.get_close_matches`
+- Mega-ensemble model switches are per-sport and saved to `nba_mega_settings.json`
+- All data sources must be completely free (no paid APIs)
+
+## Dependencies
+- pandas, numpy, scipy, colorama, tqdm, xgboost, requests, nba_api, matplotlib
+- Optional: torch (for MLP/LSTM), hmmlearn, filterpy, lightgbm, catboost, networkx

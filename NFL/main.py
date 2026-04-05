@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-NFL MONEYBALL + PREDICTS $1 CONTRACT TRACKER
+NFL SHARPSTACK + PREDICTS $1 CONTRACT TRACKER
 v3: Elo + XGBoost ensemble, rest days, injury awareness
 """
 
@@ -490,7 +490,7 @@ def dispatch(cmd, model, csv_file):
 
 def main():
     print(Back.GREEN + Fore.BLACK + Style.BRIGHT
-          + "  NFL MONEYBALL  [v4 - 35-Model Mega-Ensemble]  "
+          + "  NFL SHARPSTACK  [v4 - 35-Model Mega-Ensemble]  "
           + Style.RESET_ALL)
     div(80)
     print("""

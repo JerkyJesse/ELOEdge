@@ -1,4 +1,4 @@
-# NFL Moneyball -- 35-Model Mega-Ensemble
+# SharpStack-NFL -- 35-Model Mega-Ensemble
 
 A production-grade NFL game prediction system that fuses 35 independent models -- spanning Elo ratings, gradient boosting, Hidden Markov Models, Kalman filters, PageRank, neural networks, survival analysis, information theory, game theory, and classical football analytics -- into a single calibrated probability through a walk-forward meta-learner. Every model trains on real NFL data pulled from completely free APIs (ESPN public API, nfl_data_py/nflverse play-by-play, ESPN injuries, Open-Meteo weather). The system includes a full Predicts $1 binary contract trading ledger with Kelly criterion position sizing, live score tracking, auto-settlement, and monthly P&L charting. All 17-game-season parameters are tuned through a 7-phase exhaustive optimizer with multithreaded backtesting and optional GPU acceleration.
 

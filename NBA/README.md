@@ -1,4 +1,4 @@
-# NBA Moneyball -- 35-Model Mega-Ensemble for NBA Game Prediction
+# SharpStack-NBA -- 35-Model Mega-Ensemble for NBA Game Prediction
 
 A production-grade NBA game prediction system combining a deeply-tuned Elo rating engine with 35 independent statistical, machine learning, and physics-inspired models. All 35 model outputs feed a meta-learner (Ridge/Logistic/XGBoost) that produces a single calibrated win probability for every game. Includes a full Predicts $1 contract trading ledger with mark-to-market, auto-resolve, Kelly criterion sizing, and P&L tracking.
 

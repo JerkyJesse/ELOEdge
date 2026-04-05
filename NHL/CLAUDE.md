@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What This Is
 
-NHL game prediction system combining Elo ratings with an XGBoost ensemble, with Predicts $1 contract trading ledger. Interactive CLI app — no web server, no tests framework, no build system.
+NHL game prediction system combining Elo ratings with a 35-model mega-ensemble, with Predicts $1 contract trading ledger. Interactive CLI app -- no web server, no test framework, no build system.
 
 ## Running
 
@@ -85,10 +85,11 @@ First run auto-downloads game data (ESPN API), player stats, and injury reports 
 
 ## Architecture
 
-**Two-stage prediction pipeline:**
-1. **Elo model** (`elo_model.py` → `NHLElo` class) — base team ratings adjusted for home ice, altitude, player strength, starting goalie quality (per-goalie cumulative Elo, K_GOALIE=6, 50% season regression), rest days, travel fatigue, pace mismatch, injuries, and strength of schedule
-2. **XGBoost ensemble** (`enhanced_model.py`) — 80% Elo / 20% XGBoost using 31 rolling features per team (10-game window via `TeamTracker`, includes Pythagorean win expectation, streaks, consistency, and trend)
-3. **Platt calibration** (`platt.py`) — logistic regression on raw probabilities for well-calibrated outputs
+**Three-stage prediction pipeline:**
+1. **Elo model** (`elo_model.py` → `NHLElo` class) -- base team ratings adjusted for home ice, altitude, player strength, starting goalie quality (per-goalie cumulative Elo, K_GOALIE=6, 50% season regression), rest days, travel fatigue, pace mismatch, injuries, and strength of schedule
+2. **XGBoost ensemble** (`enhanced_model.py`) -- 80% Elo / 20% XGBoost using 31 rolling features per team (10-game window via `TeamTracker`, includes Pythagorean win expectation, streaks, consistency, and trend)
+3. **Mega-ensemble** (`mega_predictor.py` + `mega_backtest.py`) -- 35 base models stacked via a meta-learner (XGBoost, ridge, or logistic). Produces a bounded adjustment (+/- max_adj, default 0.10) on top of the Elo+XGBoost probability. Models span 7 tiers: Core (Elo, XGBoost), Proven (HMM, Kalman, PageRank, LightGBM, CatBoost, MLP, LSTM), Exotic (GARCH, Fourier/Wavelet, Survival, Copula), Info/Physics (Shannon Entropy, Momentum, Markov Chain, Clustering, Game Theory), Classical Ratings (Poisson, Glicko-2, Bradley-Terry, Monte Carlo, Random Forest), Sports-Specific (SRS, Colley Matrix, Log5, PythagenPat, Exponential Smoothing, Mean Reversion), Additional (SVM, Fibonacci, EVT, Benford), and Data Enrichment (Weather, Odds).
+4. **Platt calibration** (`platt.py`) -- logistic regression on raw probabilities for well-calibrated outputs
 
 **Data flow:**
 - `data_games.py` / `data_players.py` → download from ESPN API with 6-hour cache (`config.is_cache_stale`), 0.5s sleep between API calls
