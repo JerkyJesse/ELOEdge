@@ -1,0 +1,140 @@
+=== NBA FULL OPTIMIZATION WORKFLOW v3 ===
+Started: 2026-04-03 14:13:10.863043
+
+
+  NBA MONEYBALL  [v4 - 31-Model Mega-Ensemble]  
+────────────────────────────────────────────────────────────────────────────────
+
+WORKFLOW:
+1. Run backtest FIRST -> fits calibration scaler (better probabilities)
+2. Type team name (e.g. Lakers) -> opponent -> home? (a/b/n)?
+3. See calibrated prediction + key player metrics
+4. Type 'y' to log moneyline contract  |  'resolve' after game
+5. Run mega for 31-model ensemble  |  mega optimize to find best settings
+
+PREDICTIONS: <teamname> | today | tomorrow | all | players | injuries | settings
+
+DATA:        refresh | odds | weather
+
+BACKTEST:    backtest | enhanced | enhanced decay | shap
+
+ELO OPT:    grid | genetic | bayesian | autoopt | superopt | singleopt | results
+
+VALIDATE:    purgedcv | cpcv | pbo | montecarlo | convergence | sliding
+             rollingcal | conformal | betacal | kelly
+
+MEGA (31 models):
+  mega                Run mega-ensemble backtest (26+ models)
+  mega optimize       7-phase per-model optimization (best results at all cost)
+  mega quick          Baseline + per-model solo tuning (Phases 0-1)
+  mega tune           Per-model solo optimization (same as mega quick)
+  mega tournament     Head-to-head model tournament (Phase 2)
+  mega ablation       Test each model's contribution, auto-prune bad ones
+  mega models         Show all 31 models with ON/OFF status
+  mega on/off <model> Enable/disable individual models
+  mega settings       Show all mega parameter values
+  mega set adj=0.10   Set mega parameter (adj, meta, retrain, pn, mn, etc.)
+
+SETTINGS (39 Elo params, type 'set' to see all):
+  set k=8.38 | set home=50 | set boost=20 | set rest=10 | set b2b=30
+  set travel=15 | set pace=35 | set sos=5 | set streak=5
+  set kelly=quarter | set balance=1000 | set autoresolve=true
+
+TRADING:     predicts | balance | resolve | sell | mark | invert | chart
+             live | autoresolve | autoresolve on/off
+
+             help [command] | quit
+
+  Injuries loaded: 124 players (91 Out/Doubtful)
+
+BASELINE PERFORMANCE:
+
+  Platt scaler fitted and saved.
+  Brier (raw):        0.2019
+  Brier (calibrated): 0.1979  <- use this going forward
+  LogLoss (cal):      0.5810
+  ECE:                0.0304
+  MCE:                0.0827
+  BSS vs 50%:         0.2083  |  BSS vs home-rate (55%): 0.2008
+  Baseline accuracy: 70.32% | LogLoss: 0.5810 | Brier: 0.1979
+
+>   Mega-ensemble: replaying 1149 games through 25 models...
+
+================================================================================
+  AUTO-OPTIMIZE: Grid -> Genetic -> Bayesian (fully automatic, 19 params)
+================================================================================
+
+  PHASE 1: Coarse Grid Search (9 core params)
+────────────────────────────────────────────────────────────────────────────────
+  6912 combinations
+     1/6912  Acc=67.62% LL=0.6090 Br=0.2103  K=10 HA=25 PB=0 R=0 FW=0 T=0 SOS=0 PHCA=0.5 P=0 <- BEST
+     2/6912  Acc=67.19% LL=0.6054 Br=0.2088  K=10 HA=25 PB=0 R=0 FW=0 T=0 SOS=0 PHCA=0.5 P=20 <- BEST
+    14/6912  Acc=67.89% LL=0.6028 Br=0.2078  K=10 HA=25 PB=0 R=0 FW=0 T=20 SOS=0 PHCA=0.5 P=20 <- BEST
+    38/6912  Acc=67.71% LL=0.6025 Br=0.2076  K=10 HA=25 PB=0 R=0 FW=10 T=20 SOS=0 PHCA=0.5 P=20 <- BEST
+    114/1149 games (9%)
+    62/6912  Acc=68.41% LL=0.6020 Br=0.2074  K=10 HA=25 PB=0 R=15 FW=0 T=20 SOS=0 PHCA=0.5 P=20 <- BEST
+    86/6912  Acc=67.97% LL=0.6017 Br=0.2073  K=10 HA=25 PB=0 R=15 FW=10 T=20 SOS=0 PHCA=0.5 P=20 <- BEST
+   100/6912  Acc=66.84% LL=0.6051 Br=0.2088  K=10 HA=25 PB=0 R=30 FW=0 T=0 SOS=0 PHCA=0.8 P=20
+   146/6912  Acc=68.41% LL=0.6005 Br=0.2066  K=10 HA=25 PB=10 R=0 FW=0 T=0 SOS=0 PHCA=0.5 P=20 <- BEST
+   158/6912  Acc=68.93% LL=0.5980 Br=0.2055  K=10 HA=25 PB=10 R=0 FW=0 T=20 SOS=0 PHCA=0.5 P=20 <- BEST
+   182/6912  Acc=68.93% LL=0.5979 Br=0.2055  K=10 HA=25 PB=10 R=0 FW=10 T=20 SOS=0 PHCA=0.5 P=20 <- BEST
+   200/6912  Acc=68.32% LL=0.6001 Br=0.2065  K=10 HA=25 PB=10 R=15 FW=0 T=0 SOS=10 PHCA=0.5 P=20
+   206/6912  Acc=68.49% LL=0.5972 Br=0.2052  K=10 HA=25 PB=10 R=15 FW=0 T=20 SOS=0 PHCA=0.5 P=20 <- BEST
+   230/6912  Acc=68.67% LL=0.5970 Br=0.2051  K=10 HA=25 PB=10 R=15 FW=10 T=20 SOS=0 PHCA=0.5 P=20 <- BEST
+    228/1149 games (19%)
+   290/6912  Acc=69.28% LL=0.5958 Br=0.2043  K=10 HA=25 PB=25 R=0 FW=0 T=0 SOS=0 PHCA=0.5 P=20 <- BEST
+   300/6912  Acc=69.28% LL=0.5960 Br=0.2044  K=10 HA=25 PB=25 R=0 FW=0 T=0 SOS=10 PHCA=1.0 P=20
+   302/6912  Acc=69.28% LL=0.5933 Br=0.2033  K=10 HA=25 PB=25 R=0 FW=0 T=20 SOS=0 PHCA=0.5 P=20 <- BEST
+   350/6912  Acc=69.02% LL=0.5924 Br=0.2030  K=10 HA=25 PB=25 R=15 FW=0 T=20 SOS=0 PHCA=0.5 P=20 <- BEST
+   400/6912  Acc=68.67% LL=0.5925 Br=0.2031  K=10 HA=25 PB=25 R=30 FW=0 T=20 SOS=0 PHCA=0.8 P=20
+   500/6912  Acc=67.19% LL=0.6028 Br=0.2078  K=10 HA=45 PB=0 R=15 FW=0 T=20 SOS=10 PHCA=0.5 P=20
+    342/1149 games (29%)
+   600/6912  Acc=68.32% LL=0.5986 Br=0.2058  K=10 HA=45 PB=10 R=0 FW=0 T=20 SOS=10 PHCA=1.0 P=20
+   700/6912  Acc=68.15% LL=0.5999 Br=0.2063  K=10 HA=45 PB=10 R=30 FW=10 T=0 SOS=0 PHCA=0.8 P=20
+   800/6912  Acc=68.93% LL=0.5950 Br=0.2039  K=10 HA=45 PB=25 R=15 FW=10 T=0 SOS=10 PHCA=0.5 P=20
+   900/6912  Acc=66.32% LL=0.6077 Br=0.2098  K=10 HA=65 PB=0 R=0 FW=10 T=0 SOS=10 PHCA=1.0 P=20
+  1000/6912  Acc=66.84% LL=0.6059 Br=0.2092  K=10 HA=65 PB=0 R=30 FW=10 T=20 SOS=0 PHCA=0.8 P=20
+  1100/6912  Acc=66.67% LL=0.6010 Br=0.2069  K=10 HA=65 PB=10 R=15 FW=10 T=20 SOS=10 PHCA=0.5 P=20
+    456/1149 games (39%)
+  1200/6912  Acc=68.23% LL=0.5968 Br=0.2046  K=10 HA=65 PB=25 R=0 FW=10 T=20 SOS=10 PHCA=1.0 P=20
+  1300/6912  Acc=65.54% LL=0.6135 Br=0.2123  K=10 HA=85 PB=0 R=0 FW=0 T=0 SOS=0 PHCA=0.8 P=20
+  1400/6912  Acc=65.88% LL=0.6137 Br=0.2125  K=10 HA=85 PB=0 R=30 FW=0 T=0 SOS=10 PHCA=0.5 P=20
+  1500/6912  Acc=66.67% LL=0.6081 Br=0.2098  K=10 HA=85 PB=10 R=15 FW=0 T=0 SOS=10 PHCA=1.0 P=20
+  1600/6912  Acc=67.28% LL=0.6026 Br=0.2070  K=10 HA=85 PB=25 R=0 FW=0 T=20 SOS=0 PHCA=0.8 P=20
+  1700/6912  Acc=67.97% LL=0.6023 Br=0.2070  K=10 HA=85 PB=25 R=30 FW=0 T=20 SOS=10 PHCA=0.5 P=20
+  1800/6912  Acc=66.58% LL=0.6051 Br=0.2086  K=20 HA=25 PB=0 R=15 FW=0 T=20 SOS=10 PHCA=1.0 P=20
+  1900/6912  Acc=67.45% LL=0.6067 Br=0.2087  K=20 HA=25 PB=10 R=0 FW=10 T=0 SOS=0 PHCA=0.8 P=20
+    570/1149 games (49%)
+  2000/6912  Acc=67.97% LL=0.6066 Br=0.2089  K=20 HA=25 PB=10 R=30 FW=10 T=0 SOS=10 PHCA=0.5 P=20
+  2100/6912  Acc=67.80% LL=0.6052 Br=0.2076  K=20 HA=25 PB=25 R=15 FW=10 T=0 SOS=10 PHCA=1.0 P=20
+  2200/6912  Acc=66.58% LL=0.6063 Br=0.2088  K=20 HA=45 PB=0 R=0 FW=10 T=20 SOS=0 PHCA=0.8 P=20
+  2300/6912  Acc=67.19% LL=0.6058 Br=0.2087  K=20 HA=45 PB=0 R=30 FW=10 T=20 SOS=10 PHCA=0.5 P=20
+  2400/6912  Acc=66.93% LL=0.6035 Br=0.2073  K=20 HA=45 PB=10 R=15 FW=10 T=20 SOS=10 PHCA=1.0 P=20
+  2500/6912  Acc=68.32% LL=0.6036 Br=0.2066  K=20 HA=45 PB=25 R=15 FW=0 T=0 SOS=0 PHCA=0.8 P=20
+  2600/6912  Acc=66.67% LL=0.6106 Br=0.2103  K=20 HA=65 PB=0 R=0 FW=0 T=0 SOS=10 PHCA=0.5 P=20
+  2700/6912  Acc=66.93% LL=0.6105 Br=0.2104  K=20 HA=65 PB=0 R=30 FW=0 T=0 SOS=10 PHCA=1.0 P=20
+  2800/6912  Acc=67.71% LL=0.6057 Br=0.2080  K=20 HA=65 PB=10 R=15 FW=0 T=20 SOS=0 PHCA=0.8 P=20
+  2900/6912  Acc=68.41% LL=0.6051 Br=0.2069  K=20 HA=65 PB=25 R=0 FW=0 T=20 SOS=10 PHCA=0.5 P=20
+  3000/6912  Acc=67.97% LL=0.6045 Br=0.2068  K=20 HA=65 PB=25 R=30 FW=0 T=20 SOS=10 PHCA=1.0 P=20
+  3100/6912  Acc=66.75% LL=0.6156 Br=0.2120  K=20 HA=85 PB=0 R=15 FW=10 T=0 SOS=0 PHCA=0.8 P=20
+  3200/6912  Acc=66.75% LL=0.6138 Br=0.2107  K=20 HA=85 PB=10 R=0 FW=10 T=0 SOS=10 PHCA=0.5 P=20
+  3300/6912  Acc=66.67% LL=0.6137 Br=0.2108  K=20 HA=85 PB=10 R=30 FW=10 T=0 SOS=10 PHCA=1.0 P=20
+    684/1149 games (59%)
+  3400/6912  Acc=68.41% LL=0.6104 Br=0.2086  K=20 HA=85 PB=25 R=15 FW=10 T=20 SOS=0 PHCA=0.8 P=20
+  3500/6912  Acc=66.32% LL=0.6184 Br=0.2133  K=30 HA=25 PB=0 R=0 FW=10 T=20 SOS=10 PHCA=0.5 P=20
+  3600/6912  Acc=66.67% LL=0.6175 Br=0.2131  K=30 HA=25 PB=0 R=30 FW=10 T=20 SOS=10 PHCA=1.0 P=20
+  3700/6912  Acc=67.28% LL=0.6183 Br=0.2128  K=30 HA=25 PB=10 R=30 FW=0 T=0 SOS=0 PHCA=0.8 P=20
+  3800/6912  Acc=67.36% LL=0.6185 Br=0.2120  K=30 HA=25 PB=25 R=15 FW=0 T=0 SOS=10 PHCA=0.5 P=20
+  3900/6912  Acc=66.06% LL=0.6197 Br=0.2136  K=30 HA=45 PB=0 R=0 FW=0 T=0 SOS=10 PHCA=1.0 P=20
+  4000/6912  Acc=66.14% LL=0.6163 Br=0.2123  K=30 HA=45 PB=0 R=30 FW=0 T=20 SOS=0 PHCA=0.8 P=20
+  4100/6912  Acc=66.58% LL=0.6153 Br=0.2114  K=30 HA=45 PB=10 R=15 FW=0 T=20 SOS=10 PHCA=0.5 P=20
+  4200/6912  Acc=67.62% LL=0.6161 Br=0.2106  K=30 HA=45 PB=25 R=0 FW=0 T=20 SOS=10 PHCA=1.0 P=20
+  4300/6912  Acc=67.19% LL=0.6188 Br=0.2115  K=30 HA=45 PB=25 R=30 FW=10 T=0 SOS=0 PHCA=0.8 P=20
+  4400/6912  Acc=65.88% LL=0.6224 Br=0.2142  K=30 HA=65 PB=0 R=15 FW=10 T=0 SOS=10 PHCA=0.5 P=20
+    798/1149 games (69%)
+  4500/6912  Acc=66.41% LL=0.6216 Br=0.2131  K=30 HA=65 PB=10 R=0 FW=10 T=0 SOS=10 PHCA=1.0 P=20
+  4600/6912  Acc=66.32% LL=0.6189 Br=0.2122  K=30 HA=65 PB=10 R=30 FW=10 T=20 SOS=0 PHCA=0.8 P=20
+  4700/6912  Acc=67.28% LL=0.6191 Br=0.2112  K=30 HA=65 PB=25 R=15 FW=10 T=20 SOS=10 PHCA=0.5 P=20
+  4800/6912  Acc=66.23% LL=0.6268 Br=0.2154  K=30 HA=85 PB=0 R=0 FW=10 T=20 SOS=10 PHCA=1.0 P=20
+  4900/6912  Acc=66.67% LL=0.6253 Br=0.2140  K=30 HA=85 PB=10 R=0 FW=0 T=0 SOS=0 PHCA=0.8 P=20
+  5000/6912  Acc=66.75% LL=0.6257 Br=0.2143  K=30 HA=85 PB=10 R=30 FW=0 T=0 SOS=10 PHCA=0.5 P=20

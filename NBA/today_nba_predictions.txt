@@ -1,0 +1,18 @@
+NBA PREDICTIONS - March 27, 2026 [Platt-calibrated]
+Model: K=6.5  HomeAdv=16.0
+====================================================================================================
+MATCHUP            | PREDICTED WINNER |   WIN% | ELO EDGE | TOP AWAY PLAYERS                     | TOP HOME PLAYERS
+----------------------------------------------------------------------------------------------------
+LAC @ IND          | Clippers F       |     85% |      363 | K.Leonard 28.3p  D.Garland 18.9p  B.Mathurin 18.6p | P.Siakam 23.9p  A.Nembhard 17.1p  I.Zubac 14.1p
+ATL @ BOS          | Celtics F        |     74% |      +93 | J.Johnson 22.8p  N.Alexander-Walker 20.4p  C.McCollum 18.8p | J.Brown 28.6p  J.Tatum 19.1p  D.White 17.2p
+MIA @ CLE          | Cavaliers F      |     72% |     +113 | N.Powell 22.2p  T.Herro 21.3p  B.Adebayo 20.3p | D.Mitchell 28.3p  J.Harden 24.1p  E.Mobley 18.1p
+HOU @ MEM          | Rockets F        |     91% |      271 | K.Durant 26.0p  A.Sengun 20.5p  A.Thompson 17.9p | T.Jerome 19.7p  J.Morant 19.5p  S.Aldama 14.0p
+CHI @ OKC          | Thunder F        |     96% |     +427 | J.Giddey 17.6p  M.Buzelis 16.3p  C.Sexton 14.7p | S.Gilgeous-Alexander 31.5p  C.Holmgren 17.1p  J.Williams 17.1p
+NOP @ TOR          | Raptors          |     55% |      +98 | T.Murphy III 21.7p  Z.Williamson 21.4p  D.Murray 17.6p | B.Ingram 21.5p  R.Barrett 18.9p  S.Barnes 18.5p
+UTA @ DEN          | Nuggets F        |     95% |     +343 | L.Markkanen 26.7p  K.George 23.6p  J.Jackson Jr. 19.4p | N.Jokić 27.8p  J.Murray 25.4p  A.Gordon 16.6p
+WAS @ GSW          | Warriors F       |     84% |     +252 | A.Davis 20.4p  T.Young 17.9p  A.Sarr 16.5p | S.Curry 27.2p  J.Butler III 20.0p  K.Porziņģis 16.7p
+DAL @ POR          | Blazers F        |     89% |     +187 | C.Flagg 20.4p  N.Marshall 15.4p  P.Washington 14.3p | D.Avdija 23.9p  S.Sharpe 21.4p  J.Grant 18.6p
+BKN @ LAL          | Lakers F         |     91% |     +378 | M.Porter Jr. 24.2p  N.Clowney 12.5p  N.Claxton 11.8p | L.Dončić 33.6p  A.Reaves 23.6p  L.James 21.0p
+====================================================================================================
+F = 70%+ confidence  |  V = 60-69%  |  Stats: PPG season avg
+For entertainment & analysis purposes only.

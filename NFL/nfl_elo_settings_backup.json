@@ -1,0 +1,16 @@
+{
+  "base_rating": 1500.0,
+  "k": 21.701094554964648,
+  "home_adv": 31.469261915918125,
+  "use_mov": true,
+  "autoresolve_enabled": false,
+  "player_boost": 39.91283471597262,
+  "rest_factor": 15.513755233324979,
+  "form_weight": 8.08790211081567,
+  "travel_factor": 0.32086317593537617,
+  "sos_factor": 13.42416450048099,
+  "playoff_hca_factor": 0.7116060038436782,
+  "pace_factor": 0.1956350411227783,
+  "starting_balance": 50.0,
+  "kelly_fraction": 0.25
+}
