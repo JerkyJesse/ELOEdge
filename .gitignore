@@ -65,3 +65,4 @@ temp_*
 catboost_info/
 =*
 nfl_meta_xgb.json
+weather_cache.json

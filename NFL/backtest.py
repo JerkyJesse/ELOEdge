@@ -10,6 +10,7 @@ import numpy as np
 import pandas as pd
 from scipy.optimize import differential_evolution
 from scipy.stats import norm as norm_dist
+from tqdm import tqdm
 
 from config import GAMES_FILE, load_elo_settings, save_elo_settings
 from color_helpers import cok, cwarn, cdim, chi, div
@@ -224,10 +225,12 @@ def grid_search_optimization(csv_file=GAMES_FILE, output_file="nfl_grid_search.c
     print("  GRID SEARCH - %d combos   |   Objective: minimize Brier + LogLoss" % total)
     div(120)
 
-    for i, (k, home_adv, player_boost, rest_factor, travel, pace, phca) in enumerate(
-        product(k_values, home_adv_values, player_boost_values, rest_factor_values,
-                travel_values, pace_values, playoff_hca_values), 1
-    ):
+    pbar = tqdm(
+        enumerate(product(k_values, home_adv_values, player_boost_values,
+                          rest_factor_values, travel_values, pace_values,
+                          playoff_hca_values), 1),
+        total=total, desc="  Grid search", leave=True)
+    for i, (k, home_adv, player_boost, rest_factor, travel, pace, phca) in pbar:
         fresh_model = NFLElo(
             base_rating=base, k=float(k), home_adv=float(home_adv),
             use_mov=use_mov, player_boost=float(player_boost),
@@ -256,14 +259,12 @@ def grid_search_optimization(csv_file=GAMES_FILE, output_file="nfl_grid_search.c
         if is_best:
             best_score  = score
             best_params = row
-        flag = (" " + cok("<- BEST")) if is_best else ""
-        if is_best or i % 50 == 0 or i == total:
-            print("  %5d/%d  K=%.0f HA=%.0f PB=%.0f R=%.0f T=%.0f P=%.0f PHCA=%.1f  "
-                  "Acc=%.2f%% LL=%.4f Br=%.4f%s"
-                  % (i, total, k, home_adv, player_boost, rest_factor,
-                     travel, pace, phca,
-                     metrics["accuracy"], metrics["log_loss"], metrics["brier"], flag),
-                  flush=True)
+            tqdm.write("  %5d/%d  K=%.0f HA=%.0f PB=%.0f R=%.0f T=%.0f P=%.0f PHCA=%.1f  "
+                       "Acc=%.2f%% LL=%.4f Br=%.4f %s"
+                       % (i, total, k, home_adv, player_boost, rest_factor,
+                          travel, pace, phca,
+                          metrics["accuracy"], metrics["log_loss"], metrics["brier"],
+                          cok("<- BEST")))
 
     div(120)
     for tmp in ["temp_backtest.csv", "temp_cal.csv"]:
@@ -587,20 +588,16 @@ def bayesian_optimization(csv_file=GAMES_FILE, output_file="nfl_bayesian_results
     X_all, y_all = [], []
     best_score, best_params = 1e9, None
 
-    print("  Evaluating %d initial samples..." % n_initial)
-    for i, x in enumerate(X_init):
+    for i, x in tqdm(enumerate(X_init), total=n_initial, desc="  Bayesian init", leave=True):
         s = objective(x)
         X_all.append(x)
         y_all.append(s)
         if s < best_score:
             best_score, best_params = s, x
-            print("  [%d/%d] Score=%.4f %s" % (i + 1, n_initial, s, cok("<- BEST")), flush=True)
-        elif (i + 1) % 5 == 0:
-            print("  [%d/%d] evaluated" % (i + 1, n_initial), flush=True)
+            tqdm.write("  [%d/%d] Score=%.4f %s" % (i + 1, n_initial, s, cok("<- BEST")))
 
     gp = _GP()
-    print("\n  Starting Bayesian optimization loop...")
-    for it in range(n_iter):
+    for it in tqdm(range(n_iter), desc="  Bayesian opt", leave=True):
         Xa = np.array(X_all)
         ya = np.array(y_all)
         X_norm = (Xa - lows) / ranges
@@ -622,10 +619,8 @@ def bayesian_optimization(csv_file=GAMES_FILE, output_file="nfl_bayesian_results
         is_best = s < best_score
         if is_best:
             best_score, best_params = s, x_next
-        if is_best or (it + 1) % 10 == 0:
-            flag = cok(" <- BEST") if is_best else ""
-            print("  Iter %3d/%d  Score=%.4f  Best=%.4f%s"
-                  % (it + 1, n_iter, s, best_score, flag), flush=True)
+            tqdm.write("  Iter %3d/%d  Score=%.4f  Best=%.4f %s"
+                       % (it + 1, n_iter, s, best_score, cok("<- BEST")))
 
     for tmp in ["temp_bayes.csv", "temp_bayes_cal.csv"]:
         try: os.remove(tmp)
@@ -918,7 +913,7 @@ def monte_carlo_permutation_test(csv_file=GAMES_FILE, n_permutations=500):
     games = pd.read_csv(csv_file)
     perm_accs, perm_briers = [], []
 
-    for i in range(n_permutations):
+    for i in tqdm(range(n_permutations), desc="  Permutations", leave=True):
         shuffled = games.copy()
         swap = np.random.random(len(shuffled)) < 0.5
         hs = shuffled["home_score"].values.copy()
@@ -935,8 +930,6 @@ def monte_carlo_permutation_test(csv_file=GAMES_FILE, n_permutations=500):
         if met:
             perm_accs.append(met["accuracy"])
             perm_briers.append(met["brier"])
-        if (i + 1) % 50 == 0:
-            print("  %d/%d permutations..." % (i + 1, n_permutations), flush=True)
 
     for tmp in ["temp_mc_real.csv", "temp_mc_real_cal.csv", "temp_mc_shuf.csv", "temp_mc_p.csv", "temp_mc_c.csv"]:
         try: os.remove(tmp)
@@ -1447,7 +1440,8 @@ def auto_optimize(csv_file=GAMES_FILE):
     grid_rows = []
     t1 = time.time()
 
-    for i_combo, combo in enumerate(product(*grid_lists), 1):
+    for i_combo, combo in tqdm(enumerate(product(*grid_lists), 1), total=total,
+                               desc="  Autoopt grid", leave=True):
         vec = default_vec.copy()
         for j, (idx, _) in enumerate(grid_params):
             vec[idx] = combo[j]
@@ -1462,13 +1456,11 @@ def auto_optimize(csv_file=GAMES_FILE):
             grid_best_score = score
             grid_best_params = vec.copy()
             grid_best_met = met
-        if is_best or i_combo % 100 == 0 or i_combo == total:
-            flag = cok(" <- BEST") if is_best else ""
-            print("  %5d/%d  Acc=%.2f%% LL=%.4f Br=%.4f  %s%s"
-                  % (i_combo, total, met.get("accuracy", 0), met.get("log_loss", 0),
-                     met.get("brier", 0),
-                     "K=%.0f HA=%.0f PB=%.0f R=%.0f FW=%.0f T=%.0f SOS=%.0f PHCA=%.1f Pace=%.0f Bye=%.0f" % tuple(vec[:10]),
-                     flag), flush=True)
+            tqdm.write("  %5d/%d  Acc=%.2f%% LL=%.4f Br=%.4f  %s %s"
+                       % (i_combo, total, met.get("accuracy", 0), met.get("log_loss", 0),
+                          met.get("brier", 0),
+                          "K=%.0f HA=%.0f PB=%.0f R=%.0f FW=%.0f T=%.0f SOS=%.0f PHCA=%.1f Pace=%.0f Bye=%.0f" % tuple(vec[:10]),
+                          cok("<- BEST")))
 
     if grid_rows:
         pd.DataFrame(grid_rows).to_csv("nfl_grid_search.csv", index=False)
@@ -1575,8 +1567,7 @@ def auto_optimize(csv_file=GAMES_FILE):
     bay_best_score, bay_best_params = 1e9, None
     bay_best_met = {}
 
-    print("  Evaluating %d initial samples..." % n_initial)
-    for x in X_init:
+    for x in tqdm(X_init, desc="  Autoopt Bayes init", leave=True):
         s, met = _eval(x)
         X_all.append(x)
         y_all.append(s)
@@ -1584,7 +1575,7 @@ def auto_optimize(csv_file=GAMES_FILE):
             bay_best_score, bay_best_params, bay_best_met = s, x, met
 
     gp = _GP()
-    for it in range(n_iter):
+    for it in tqdm(range(n_iter), desc="  Autoopt Bayes opt", leave=True):
         Xa, ya = np.array(X_all), np.array(y_all)
         Xn = (Xa - lows) / ranges
         ym, ys = ya.mean(), max(ya.std(), 1e-8)
@@ -1605,10 +1596,8 @@ def auto_optimize(csv_file=GAMES_FILE):
         is_best = s < bay_best_score
         if is_best:
             bay_best_score, bay_best_params, bay_best_met = s, x_next, met
-        if is_best or (it + 1) % 10 == 0:
-            flag = cok(" <- BEST") if is_best else ""
-            print("  Iter %2d/%d  score=%.4f  best=%.4f%s"
-                  % (it + 1, n_iter, -s if s < 1e8 else 0, -bay_best_score, flag), flush=True)
+            tqdm.write("  Iter %2d/%d  score=%.4f  best=%.4f %s"
+                       % (it + 1, n_iter, -s if s < 1e8 else 0, -bay_best_score, cok("<- BEST")))
 
     winners.append((bay_best_score, np.array(bay_best_params), "Bayesian", bay_best_met))
     bay_rows = []

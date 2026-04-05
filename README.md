@@ -36,10 +36,10 @@ pip install torch --index-url https://download.pytorch.org/whl/cpu
 pip install torch  # Auto-detects CUDA
 
 # 4. Run any sport
-cd NFLClaude && python main.py
-cd MLBClaude && python main.py
-cd NBAClaude && python main.py
-cd NHLClaude && python main.py
+cd NFL && python main.py
+cd MLB && python main.py
+cd NBA && python main.py
+cd NHL && python main.py
 ```
 
 First run auto-downloads 2 years of game data, player stats, and injury reports from free public APIs. No API keys required for core functionality.
@@ -548,7 +548,7 @@ Claude/
 |-- odds_tracker.py              # Bookmaker odds + CLV tracking (15-min cache)
 |-- weather.py                   # Open-Meteo weather impact (62 venues, no key)
 |
-|-- NFLClaude/                   # NFL-specific (32 teams)
+|-- NFL/                   # NFL-specific (32 teams)
 |   |-- main.py                  # CLI entry point + all command dispatch
 |   |-- elo_model.py             # NFLElo class (K=20, HomeAdv=48, bye week)
 |   |-- config.py                # Team definitions, smart cache, settings I/O
@@ -569,9 +569,9 @@ Claude/
 |   |-- color_helpers.py         # Terminal color formatting (cok, cerr, cwarn, etc.)
 |   +-- requirements.txt
 |
-|-- MLBClaude/                   # MLB-specific (30 teams, K=4, starting pitcher Elo)
-|-- NBAClaude/                   # NBA-specific (30 teams, K=8.38, Pythagorean exp=14)
-+-- NHLClaude/                   # NHL-specific (32 teams, goalie tracking)
+|-- MLB/                   # MLB-specific (30 teams, K=4, starting pitcher Elo)
+|-- NBA/                   # NBA-specific (30 teams, K=8.38, Pythagorean exp=14)
++-- NHL/                   # NHL-specific (32 teams, goalie tracking)
 ```
 
 ---

@@ -20,7 +20,7 @@ def run_workflow(sport_dir):
         print(f"ERROR: {sport_path} not found")
         return
 
-    sport_name = sport_dir.replace("Claude", "").upper()
+    sport_name = sport_dir.upper()
     log_file = os.path.join(sport_path, f"{sport_name.lower()}_optimization_log.txt")
 
     # Commands to pipe through stdin

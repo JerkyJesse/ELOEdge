@@ -124,7 +124,7 @@ def get_team_injuries(team_name, injuries=None):
     for inj in injuries:
         inj_team = str(inj.get("team", "")).strip()
         status = str(inj.get("status", "")).strip()
-        if status not in ("Out", "Doubtful"):
+        if status not in ("Out", "Doubtful", "Day-to-Day"):
             continue
         if (inj_team.upper() == abbr or
                 inj_team.lower() == team_lower or

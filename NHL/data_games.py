@@ -13,13 +13,6 @@ from config import GAMES_FILE, TEAM_ABBR, get_season_label, is_cache_stale
 ESPN_SCOREBOARD_URL = "https://site.api.espn.com/apis/site/v2/sports/hockey/nhl/scoreboard"
 NHL_API_BASE = "https://api-web.nhle.com/v1"
 
-# Map our full team names to NHL API abbreviations
-_TEAM_TO_NHL_ABBR = {v: v for _, v in TEAM_ABBR.items()}
-# Also build reverse: NHL abbr -> our full name
-_NHL_ABBR_TO_FULL = {}
-for full_name, abbr in TEAM_ABBR.items():
-    _NHL_ABBR_TO_FULL[abbr] = full_name
-
 
 def validate_games_df(df):
     required = {"date", "home_team", "away_team", "home_score", "away_score", "neutral_site"}

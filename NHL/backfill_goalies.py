@@ -59,6 +59,15 @@ def _build_game_id_map(seasons, team_abbrs):
     return game_map
 
 
+def _toi_to_minutes(toi_str):
+    """Convert 'MM:SS' time-on-ice string to float minutes."""
+    try:
+        parts = str(toi_str).split(":")
+        return int(parts[0]) + int(parts[1]) / 60.0
+    except (ValueError, IndexError):
+        return 0.0
+
+
 def _get_starting_goalies(game_id):
     """Get starting goalies from boxscore (goalie with most TOI)."""
     try:
@@ -71,13 +80,13 @@ def _get_starting_goalies(game_id):
         result = {}
         for side in ("homeTeam", "awayTeam"):
             goalies = pbgs.get(side, {}).get("goalies", [])
-            best_toi = ""
+            best_toi = 0.0
             best_name = ""
             for g in goalies:
-                toi = g.get("toi", "00:00")
+                toi_min = _toi_to_minutes(g.get("toi", "00:00"))
                 name = g.get("name", {}).get("default", "")
-                if toi > best_toi and name:
-                    best_toi = toi
+                if toi_min > best_toi and name:
+                    best_toi = toi_min
                     best_name = name
             result[side] = best_name
         return result.get("homeTeam", ""), result.get("awayTeam", "")

@@ -4,7 +4,7 @@ A production-grade NHL game prediction system that fuses 31 independent models -
 
 The NHL system's most distinctive feature is its **per-goalie cumulative Elo sub-rating system**. Because a starting goaltender can single-handedly win or lose a hockey game, the system tracks individual goalie Elo ratings (K_GOALIE=6) with 50% season regression, and weights goaltender contributions at 45% of the overall player composite score. A star goaltender injury costs approximately 35 Elo points -- roughly 50% of a team's total value.
 
-**32 NHL teams** | **31 models** | **75+ tunable parameters** (21 Elo + 54 per-model) | **7-phase per-model optimizer** | **No paid APIs**
+**32 NHL teams** | **35 models** | **75+ tunable parameters** (21 Elo + 54 per-model) | **7-phase per-model optimizer** | **No paid APIs**
 
 ---
 
@@ -12,7 +12,7 @@ The NHL system's most distinctive feature is its **per-goalie cumulative Elo sub
 
 ```bash
 # 1. Clone and enter directory
-cd NHLClaude
+cd NHL
 
 # 2. Install dependencies
 pip install -r requirements.txt
@@ -32,7 +32,7 @@ python main.py
 3. Baseline backtest runs automatically (fits Platt calibration scaler)
 4. Enter starting balance when prompted (for contract tracking)
 5. Type a team name (e.g. "Bruins") to make your first prediction
-6. Run 'mega' for the full 31-model ensemble backtest
+6. Run 'mega' for the full 35-model ensemble backtest
 7. Run 'mega tune' to solo-test each model's optimal settings
 8. Run 'mega optimize' for full 7-phase per-model optimization
 ```
@@ -316,10 +316,10 @@ Every parameter in this system was chosen with the specific structure of the Nat
 | `mega tournament` | Head-to-head model tournament (Phase 2 only) | ~15-30m |
 | `mega quick` | Quick grid search only (Phase 1) | ~20-40m |
 | `mega ablation` | Ablation study: test each model's individual contribution | ~30-60m |
-| `mega models` | Show all 31 models with ON/OFF status and tier | instant |
+| `mega models` | Show all 35 models with ON/OFF status and tier | instant |
 | `mega on <model>` | Enable a specific model (e.g., `mega on lstm`) | instant |
 | `mega off <model>` | Disable a specific model (e.g., `mega off weather`) | instant |
-| `mega on all` | Enable all 31 models | instant |
+| `mega on all` | Enable all 35 models | instant |
 | `mega settings` | Show all mega parameter current values | instant |
 | `mega set <param>=<value>` | Set a mega parameter (e.g., `mega set adj=0.10`) | instant |
 
@@ -550,7 +550,7 @@ This weighting is intentional -- LogLoss penalizes confident wrong predictions w
 
 Use `mega tune` for per-model solo optimization (Phase 1 only) and `mega tournament` for head-to-head model comparison (Phase 2 only).
 
-**Mega ablation** (`mega ablation`): Disables each model one at a time and measures the accuracy change. Models that hurt overall accuracy are automatically flagged for pruning. This identifies which of the 31 models are contributing positive signal and which are adding noise.
+**Mega ablation** (`mega ablation`): Disables each model one at a time and measures the accuracy change. Models that hurt overall accuracy are automatically flagged for pruning. This identifies which of the 35 models are contributing positive signal and which are adding noise.
 
 ### Recommended Optimization Workflow
 
@@ -890,7 +890,7 @@ When `autoresolve on` is active, the system automatically settles contracts when
 ## File Structure
 
 ```
-NHLClaude/
+NHL/
 |
 |-- main.py                     # CLI entry point, command dispatch loop
 |-- config.py                   # Constants, 32 NHL teams, 4 divisions, settings I/O
@@ -945,7 +945,7 @@ NHLClaude/
 |-- kalshi.py                   # Kalshi prediction market integration
 |
 |-- meta_learner.py             # Ridge/Logistic/XGBoost meta-learner stacker
-|-- mega_predictor.py           # Live 31-model ensemble predictor
+|-- mega_predictor.py           # Live 35-model ensemble predictor
 |-- mega_backtest.py            # Mega-ensemble walk-forward backtest engine
 |-- mega_optimizer.py           # 7-phase mega-ensemble optimization
 |-- mega_config.py              # Per-model on/off switches + mega params (54 hyperparameters)
@@ -973,7 +973,7 @@ NHLClaude/
 |-- predicts_lots.csv           # [generated] Trading ledger
 ```
 
-**Total: 55 Python files** across core engine, 31 model implementations, data pipeline, optimization, trading, and display.
+**Total: 59 Python files** across core engine, 35 model implementations, data pipeline, optimization, trading, and display.
 
 ---
 
@@ -983,7 +983,7 @@ NHLClaude/
 
 - **Python**: 3.9 or higher (3.8+ compatible -- no walrus operators, no `match` statements)
 - **OS**: Windows, macOS, or Linux
-- **RAM**: 4 GB minimum, 8 GB recommended (mega-ensemble holds all 31 models in memory)
+- **RAM**: 4 GB minimum, 8 GB recommended (mega-ensemble holds all 35 models in memory)
 - **Disk**: ~500 MB for cached data + model files
 - **Internet**: Required for API data downloads (can run offline with cached data)
 - **GPU**: Optional (CUDA-capable NVIDIA GPU for XGBoost/LightGBM/CatBoost/PyTorch acceleration)
@@ -997,6 +997,7 @@ pandas>=1.5
 numpy>=1.24
 scipy>=1.10
 colorama>=0.4
+tqdm>=4.60
 xgboost>=2.0
 requests>=2.28
 matplotlib>=3.7

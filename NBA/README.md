@@ -1,8 +1,8 @@
-# NBA Moneyball -- 31-Model Mega-Ensemble for NBA Game Prediction
+# NBA Moneyball -- 35-Model Mega-Ensemble for NBA Game Prediction
 
-A production-grade NBA game prediction system combining a deeply-tuned Elo rating engine with 31 independent statistical, machine learning, and physics-inspired models. All 31 model outputs feed a meta-learner (Ridge/Logistic/XGBoost) that produces a single calibrated win probability for every game. Includes a full Predicts $1 contract trading ledger with mark-to-market, auto-resolve, Kelly criterion sizing, and P&L tracking.
+A production-grade NBA game prediction system combining a deeply-tuned Elo rating engine with 35 independent statistical, machine learning, and physics-inspired models. All 35 model outputs feed a meta-learner (Ridge/Logistic/XGBoost) that produces a single calibrated win probability for every game. Includes a full Predicts $1 contract trading ledger with mark-to-market, auto-resolve, Kelly criterion sizing, and P&L tracking.
 
-**30 NBA teams. 31 models. 78+ tunable parameters (24 Elo + 54 per-model). 68.74% accuracy on 1,158 games tested.**
+**30 NBA teams. 35 models. 90+ tunable parameters (24 Elo + 58 per-model). 68.74% accuracy on 1,158 games tested.**
 
 Every data source is **completely free** -- no paid APIs, no subscriptions, no keys required for core functionality. The system pulls game logs and player stats from the official NBA API (`nba_api`), injury reports from ESPN, weather from Open-Meteo, and optional betting odds from The Odds API (free tier, 500 requests/month).
 
@@ -15,7 +15,8 @@ The interactive CLI handles the entire workflow: download data, build ratings, b
 ### Install
 
 ```bash
-cd NBAClaude
+git clone https://github.com/JerkyJesse/SharpStack-NBA.git
+cd SharpStack-NBA
 pip install -r requirements.txt
 python main.py
 ```
@@ -41,7 +42,7 @@ python main.py
                        -> 0.62        -- price per contract
                        -> notes       -- optional notes
 
-5. Run mega-ensemble   mega           -- 31-model ensemble backtest
+5. Run mega-ensemble   mega           -- 35-model ensemble backtest
                        mega tune      -- per-model solo optimization
                        mega optimize  -- 7-phase per-model optimization (54 hyperparams)
 
@@ -423,16 +424,16 @@ A team flying from Portland (UTC-8) to Miami (UTC-5) crosses 3 timezones, receiv
 
 | Command | Description | Time |
 |---------|-------------|------|
-| `mega` | Run full 31-model mega-ensemble backtest | 3-10min |
+| `mega` | Run full 35-model mega-ensemble backtest | 3-10min |
 | `mega optimize` / `mega opt` | 7-phase per-model exhaustive mega-ensemble optimization (54 hyperparameters) | 1-4hr |
 | `mega tune` | Per-model solo optimization (Phase 1 only) | 15-30min |
 | `mega tournament` | Head-to-head model tournament (Phase 2 only) | 15-30min |
 | `mega quick` | Quick grid search (Phase 1 only) | 15-30min |
 | `mega ablation` | Single-model ablation study -- tests each model's individual contribution | 30-60min |
-| `mega models` | Show all 31 models with ON/OFF status, organized by tier | instant |
+| `mega models` | Show all 35 models with ON/OFF status, organized by tier | instant |
 | `mega on <model>` | Enable a specific model (e.g., `mega on lstm`) | instant |
 | `mega off <model>` | Disable a specific model | instant |
-| `mega on all` | Enable all 31 models | instant |
+| `mega on all` | Enable all 35 models | instant |
 | `mega settings` / `mega params` | Show all mega-ensemble parameter values | instant |
 | `mega set <param>=<value>` | Set a mega parameter (e.g., `mega set adj=0.10`, `mega set meta=ridge`) | instant |
 
@@ -931,7 +932,7 @@ EVENING (in-game & post-game)
 ## File Structure
 
 ```
-NBAClaude/
+NBA/
 |
 |-- main.py                    Main CLI entry point, dispatch() routes all 60+ commands
 |-- config.py                  Constants, 30 team abbreviations, settings I/O, season detection
@@ -948,8 +949,8 @@ NBAClaude/
 |-- injuries.py                ESPN injury report fetcher + team impact calculator
 |-- cache_utils.py             Smart season-aware cache staleness logic
 |
-|-- mega_backtest.py           31-model mega-ensemble backtest engine (multithreaded)
-|-- mega_config.py             Model registry (31 models), on/off switches, 54 hyperparameters
+|-- mega_backtest.py           35-model mega-ensemble backtest engine (multithreaded)
+|-- mega_config.py             Model registry (35 models), on/off switches, 54 hyperparameters
 |-- mega_optimizer.py          7-phase mega-ensemble optimization
 |-- mega_predictor.py          Live mega-ensemble predictor (replays history, loads meta-learner)
 |-- meta_learner.py            Meta-learner: Ridge, Logistic, or XGBoost stacker
@@ -1088,6 +1089,7 @@ Games tested:              1,158
 | colorama | >= 0.4 | Colored terminal output |
 | xgboost | >= 2.0 | Gradient boosting (Tier 0 model + meta-learner option) |
 | requests | >= 2.28 | HTTP requests for APIs (ESPN injuries, Odds, Weather) |
+| tqdm | >= 4.60 | Progress bars for optimization and backtesting |
 | matplotlib | >= 3.7 | P&L charts and visualization |
 
 ### NBA Data APIs

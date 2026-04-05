@@ -36,7 +36,7 @@ First run auto-downloads game data (ESPN API), player stats, and injury reports 
 - `odds_tracker.py` -- odds/line tracking
 
 **Mega-ensemble:**
-- `mega_predictor.py` -- 31-model mega-ensemble runner (MegaPredictor class)
+- `mega_predictor.py` -- 35-model mega-ensemble runner (MegaPredictor class)
 - `mega_config.py` -- mega settings, model registry, tier definitions
 - `mega_backtest.py` -- mega-ensemble walk-forward backtest
 - `mega_optimizer.py` -- 7-phase per-model optimization
@@ -82,7 +82,7 @@ First run auto-downloads game data (ESPN API), player stats, and injury reports 
 ## Architecture
 
 **Two-stage prediction pipeline:**
-1. **Elo model** (`elo_model.py` → `NHLElo` class) — base team ratings adjusted for home ice, altitude, player strength, starting goalie quality (per-goalie cumulative Elo, currently disabled), rest days, travel fatigue, pace mismatch, injuries, and strength of schedule
+1. **Elo model** (`elo_model.py` → `NHLElo` class) — base team ratings adjusted for home ice, altitude, player strength, starting goalie quality (per-goalie cumulative Elo, K_GOALIE=6, 50% season regression), rest days, travel fatigue, pace mismatch, injuries, and strength of schedule
 2. **XGBoost ensemble** (`enhanced_model.py`) — 80% Elo / 20% XGBoost using 31 rolling features per team (10-game window via `TeamTracker`, includes Pythagorean win expectation, streaks, consistency, and trend)
 3. **Platt calibration** (`platt.py`) — logistic regression on raw probabilities for well-calibrated outputs
 
@@ -381,7 +381,7 @@ Enter a team name to start a prediction. Core commands:
 
 ## Mega-Ensemble
 
-The `mega_predictor.py` module implements a 31-model mega-ensemble predictor. Each model runs independently on the same walk-forward game loop, producing a raw probability. A meta-learner (Ridge, Logistic, or XGBoost) combines all 31 outputs into a single calibrated adjustment that is clamped to +/- `max_adj` (default 0.10) around the Elo anchor probability.
+The `mega_predictor.py` module implements a 35-model mega-ensemble predictor. Each model runs independently on the same walk-forward game loop, producing a raw probability. A meta-learner (Ridge, Logistic, or XGBoost) combines all 31 outputs into a single calibrated adjustment that is clamped to +/- `max_adj` (default 0.10) around the Elo anchor probability.
 
 **Key commands:**
 - `mega` -- Run full mega-ensemble backtest with all enabled models
@@ -389,14 +389,14 @@ The `mega_predictor.py` module implements a 31-model mega-ensemble predictor. Ea
 - `mega tune` -- Per-model solo optimization (Phase 1 only)
 - `mega tournament` -- Head-to-head model comparison (Phase 2 only)
 - `mega ablation` -- Ablation study: test each model's contribution, auto-prune bad ones
-- `mega models` -- Show all 31 models with ON/OFF status
+- `mega models` -- Show all 35 models with ON/OFF status
 - `mega on/off <model>` -- Enable/disable individual models
 - `mega settings` -- Show all mega parameter values
 - `mega set <param>=<value>` -- Set mega parameters (e.g., `mega set adj=0.10`)
 
 **Model tiers:** Tier 0 (Elo, XGBoost), Tier 1 (HMM, Kalman, PageRank, LightGBM, CatBoost, MLP, LSTM), Tier 2 (GARCH, Fourier, Survival, Copula), Tier 3 (InfoTheory, Momentum, Markov, Clustering, GameTheory), Tier 4 (Poisson, Glicko-2, Bradley-Terry, Monte Carlo, Random Forest), Tier 5 (SRS, Colley, Log5, Pythagorean, ExpSmoothing, MeanReversion), Tier 6 (Weather, Odds).
 
-All 31 models run in parallel via `ThreadPoolExecutor`. Settings stored in `nhl_mega_settings.json`.
+All 35 models run in parallel via `ThreadPoolExecutor`. Settings stored in `nhl_mega_settings.json`.
 
 ## Conventions
 
