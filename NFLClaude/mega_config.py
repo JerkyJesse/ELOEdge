@@ -8,6 +8,7 @@ Settings file: {sport}_mega_settings.json in each sport directory.
 
 import os
 import json
+import logging
 
 # ── Master model registry ──────────────────────────────────────────
 # Every model in the mega-ensemble, with default on/off and description.
@@ -79,8 +80,8 @@ def load_model_switches(sport, sport_dir):
                 data = json.load(f)
             saved = data.get("model_switches", {})
             switches.update(saved)
-        except Exception:
-            pass
+        except Exception as e:
+            logging.debug("Failed to load model switches: %s", e)
 
     return switches
 
@@ -95,8 +96,8 @@ def save_model_switches(sport, sport_dir, switches):
         try:
             with open(path, "r") as f:
                 data = json.load(f)
-        except Exception:
-            pass
+        except Exception as e:
+            logging.debug("Failed to load existing settings for switch save: %s", e)
 
     data["model_switches"] = switches
 
@@ -310,8 +311,8 @@ def load_model_params(sport, sport_dir):
             with open(path, "r") as f:
                 data = json.load(f)
             return data.get("model_params", {})
-        except Exception:
-            pass
+        except Exception as e:
+            logging.debug("Failed to load model params: %s", e)
     return {}
 
 
@@ -323,8 +324,8 @@ def save_model_params(sport, sport_dir, model_params):
         try:
             with open(path, "r") as f:
                 data = json.load(f)
-        except Exception:
-            pass
+        except Exception as e:
+            logging.debug("Failed to load existing settings for param save: %s", e)
     data["model_params"] = model_params
     with open(path, "w") as f:
         json.dump(data, f, indent=2)
@@ -356,8 +357,8 @@ def load_mega_params(sport, sport_dir):
         try:
             with open(path, "r") as f:
                 return json.load(f)
-        except Exception:
-            pass
+        except Exception as e:
+            logging.debug("Failed to load mega params: %s", e)
     return {}
 
 
@@ -369,8 +370,8 @@ def save_mega_params(sport, sport_dir, params):
         try:
             with open(path, "r") as f:
                 existing = json.load(f)
-        except Exception:
-            pass
+        except Exception as e:
+            logging.debug("Failed to load existing mega params for save: %s", e)
     existing.update(params)
     with open(path, "w") as f:
         json.dump(existing, f, indent=2)

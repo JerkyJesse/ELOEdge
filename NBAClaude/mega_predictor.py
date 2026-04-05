@@ -82,8 +82,8 @@ class MegaPredictor:
             try:
                 with open(settings_path, "r") as f:
                     mp = json.load(f)
-            except Exception:
-                pass
+            except Exception as e:
+                logging.debug("Mega settings load failed: %s", e)
 
         self._max_adj = mp.get("max_adj", 0.08)
         defaults = SPORT_DEFAULTS.get(sport, SPORT_DEFAULTS["nfl"])
@@ -578,10 +578,10 @@ class MegaPredictor:
                 if model:
                     try:
                         model.train(X, y, feat_names)
-                    except Exception:
-                        pass
-        except Exception:
-            pass
+                    except Exception as e:
+                        logging.debug("ML model %s train failed: %s", name, e)
+        except Exception as e:
+            logging.debug("ML model training failed: %s", e)
 
     def predict(self, home, away, elo_prob, elo_diff, game_date=None):
         """Get bounded mega-ensemble adjustment for a prediction.

@@ -139,11 +139,11 @@ class MLPPredictor:
             else:
                 patience_counter += 1
                 if patience_counter >= 15:
-                    logging.info("MLP early stop at epoch %d (loss=%.4f)", epoch, avg_loss)
+                    logging.debug("MLP early stop at epoch %d (loss=%.4f)", epoch, avg_loss)
                     break
 
         self._fitted = True
-        logging.info("MLP trained: %d features, final loss=%.4f", X.shape[1], best_loss)
+        logging.debug("MLP trained: %d features, final loss=%.4f", X.shape[1], best_loss)
 
     def predict_proba(self, X):
         """Predict win probability."""

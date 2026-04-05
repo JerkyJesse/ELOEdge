@@ -78,8 +78,8 @@ def _save_cache(injuries):
     try:
         with open(INJURY_CACHE_FILE, "w") as f:
             json.dump(cache, f, indent=2)
-    except Exception:
-        pass
+    except Exception as e:
+        logging.warning("Injury cache save failed: %s", e)
 
 
 def _load_cache():
@@ -93,7 +93,8 @@ def _load_cache():
         if age > INJURY_CACHE_MAX_HOURS:
             return None
         return cache.get("injuries", [])
-    except Exception:
+    except Exception as e:
+        logging.debug("Injury cache load failed: %s", e)
         return None
 
 

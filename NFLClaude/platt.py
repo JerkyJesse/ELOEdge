@@ -51,7 +51,8 @@ def load_platt_scaler(filename=PLATT_SCALER_FILE):
     try:
         with open(filename, "r") as f:
             return json.load(f)
-    except Exception:
+    except Exception as e:
+        logging.debug("Failed to load Platt scaler: %s", e)
         return None
 
 
@@ -150,7 +151,8 @@ def load_isotonic_scaler(filename=ISOTONIC_FILE):
     try:
         with open(filename, "r") as f:
             return json.load(f)
-    except Exception:
+    except Exception as e:
+        logging.debug("Failed to load isotonic scaler: %s", e)
         return None
 
 
@@ -211,5 +213,6 @@ def load_beta_scaler(filename=BETA_SCALER_FILE):
     try:
         with open(filename, "r") as f:
             return json.load(f)
-    except Exception:
+    except Exception as e:
+        logging.debug("Failed to load beta scaler: %s", e)
         return None

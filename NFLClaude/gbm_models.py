@@ -110,7 +110,7 @@ class LightGBMPredictor:
             callbacks=[lgb.log_evaluation(0)],
         )
         self._fitted = True
-        logging.info("LightGBM trained: %d rounds, %d features", 300, X.shape[1])
+        logging.debug("LightGBM trained: %d rounds, %d features", 300, X.shape[1])
 
     def predict_proba(self, X):
         """Predict win probability for home team."""
@@ -234,7 +234,7 @@ class CatBoostPredictor:
 
         self.model.fit(pool)
         self._fitted = True
-        logging.info("CatBoost trained: 300 iterations, %d features", X.shape[1])
+        logging.debug("CatBoost trained: 300 iterations, %d features", X.shape[1])
 
     def predict_proba(self, X):
         """Predict win probability for home team."""

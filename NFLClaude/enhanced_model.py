@@ -173,7 +173,8 @@ class TeamTracker:
                 opp_w = np.array(recent_opp[:min_n], dtype=float)
                 res_w = np.array(recent_res[:min_n], dtype=float)
                 opp_w = opp_w / 1500.0  # normalize around 1.0
-                sos_adj_wp = float(np.average(res_w, weights=opp_w))
+                if opp_w.sum() > 0:
+                    sos_adj_wp = float(np.average(res_w, weights=opp_w))
 
         return {
             "ppg": ppg,
@@ -485,7 +486,8 @@ def run_enhanced_backtest(csv_file=GAMES_FILE, min_train=200, retrain_every=50,
     try:
         from data_players import load_advanced_stats
         adv_df = load_advanced_stats()
-    except Exception:
+    except Exception as e:
+        logging.debug("Advanced stats not available: %s", e)
         adv_df = None
     team_stats = compute_team_stats(player_df, adv_df)
 

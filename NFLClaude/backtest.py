@@ -722,8 +722,8 @@ def purged_walk_forward_cv(csv_file=GAMES_FILE, k_folds=5, embargo_games=5):
                 model.update_game(row["home_team"], row["away_team"],
                                   row["home_score"], row["away_score"],
                                   neutral_site=bool(row.get("neutral_site", False)), game_date=gd)
-            except Exception:
-                pass
+            except Exception as e:
+                logging.debug("Purged CV prediction error: %s", e)
 
         if probs:
             acc = sum(1 for p, a in zip(probs, actuals) if (p >= 0.5) == (a == 1)) / len(probs) * 100
@@ -806,8 +806,8 @@ def combinatorial_purged_cv(csv_file=GAMES_FILE, k_blocks=5, k_test=2):
                 if (p >= 0.5) == (a == 1):
                     correct += 1
                 total += 1
-            except Exception:
-                pass
+            except Exception as e:
+                logging.debug("CPCV prediction error: %s", e)
         if total > 0:
             acc = correct / total * 100
             all_accs.append(acc)

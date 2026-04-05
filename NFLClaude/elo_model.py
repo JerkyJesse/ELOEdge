@@ -508,7 +508,8 @@ class NFLElo:
             fvec = np.array([[fdict[c] for c in feature_cols]])
             dmat = xgb.DMatrix(fvec, feature_names=feature_cols)
             return float(self._xgb_model.predict(dmat)[0])
-        except Exception:
+        except Exception as e:
+            logging.debug("XGB predict failed: %s", e)
             return None
 
     def pick_winner(self, team_a, team_b, team_a_home=True, neutral_site=False,

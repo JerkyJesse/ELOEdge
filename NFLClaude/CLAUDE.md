@@ -15,16 +15,82 @@ python main.py
 
 First run auto-downloads game data (ESPN API), player stats, and injury reports (ESPN). Then runs a backtest to fit the Platt calibration scaler and enters the interactive CLI loop.
 
+## File Map
+
+**Core pipeline:**
+- `main.py` -- CLI entry point, `dispatch()` routes all commands
+- `config.py` -- constants, file paths, settings load/save, 32-team TEAM_ABBR dict
+- `elo_model.py` -- `NFLElo` class: ratings, adjusters, win_prob(), update_game()
+- `build_model.py` -- constructs NFLElo from settings + game CSV, season regression
+- `backtest.py` -- walk-forward backtest, grid/genetic/bayesian optimizers, advanced validation
+- `enhanced_model.py` -- XGBoost ensemble (80/20 Elo+XGB), TeamTracker, SHAP
+- `platt.py` -- Platt scaling + isotonic regression + beta calibration
+- `metrics.py` -- ECE, MCE, BSS, conformal prediction
+
+**Data & features:**
+- `data_games.py` -- ESPN game data download + cache
+- `data_players.py` -- ESPN player stats + advanced stats download
+- `injuries.py` -- ESPN injury reports, position-based Elo impact
+- `advanced_stats.py` -- nfl_data_py: EPA, CPOE, success rate, referee tendencies
+- `weather.py` -- Open-Meteo weather data for outdoor games
+- `odds_tracker.py` -- odds/line tracking
+
+**Mega-ensemble:**
+- `mega_predictor.py` -- 31-model mega-ensemble runner (MegaPredictor class)
+- `mega_config.py` -- mega settings, model registry, tier definitions
+- `mega_backtest.py` -- mega-ensemble walk-forward backtest
+- `mega_optimizer.py` -- 7-phase per-model optimization
+- `meta_learner.py` -- Ridge/Logistic/XGBoost meta-learner for combining model outputs
+
+**Individual models (mega-ensemble components):**
+- `gbm_models.py` -- LightGBM, CatBoost
+- `nn_models.py` -- MLP, LSTM neural network models
+- `random_forest_model.py` -- Random Forest
+- `hmm_model.py` -- Hidden Markov Model
+- `kalman_model.py` -- Kalman Filter
+- `network_model.py` -- PageRank network model
+- `volatility_model.py` -- GARCH volatility
+- `signal_model.py` -- Fourier signal decomposition
+- `survival_model.py` -- Survival analysis
+- `copula_model.py` -- Copula dependency model
+- `information_theory_model.py` -- Information theory (entropy)
+- `momentum_model.py` -- Momentum/trend model
+- `markov_chain_model.py` -- Markov chain transitions
+- `clustering_model.py` -- Team clustering
+- `game_theory_model.py` -- Game theory (Nash equilibrium)
+- `poisson_model.py` -- Poisson goal model
+- `glicko_model.py` -- Glicko-2 rating system
+- `bradley_terry_model.py` -- Bradley-Terry paired comparisons
+- `monte_carlo_model.py` -- Monte Carlo simulation
+- `classic_models.py` -- SRS, Colley, Log5, Pythagorean, ExpSmoothing, MeanReversion
+
+**Infrastructure:**
+- `color_helpers.py` -- colored output wrappers (cok, cerr, cwarn, chi, cdim, cbold)
+- `cache_utils.py` -- unified cache management, staleness checks
+- `elo_set_handler.py` -- Elo settings import/export/backup
+- `kalshi.py` -- Kalshi prediction market integration
+- `live_scores.py` -- ESPN live scoreboard
+- `auto_resolve.py` -- auto-settle positions from final scores
+- `predict_ledger.py` -- Predicts $1 contract trading ledger
+- `html_generator.py` -- Blogger HTML output for predictions
+- `help_system.py` -- CLI help text
+- `accuracy_test.py` -- standalone quick backtest script
+
+**Optimization utilities:**
+- `run_optimize.py`, `quick_optimizer.py`, `single_param_opt.py`, `accuracy_optimize.py`, `sweep_enhanced.py`, `run_enhanced_all.py` -- various optimization scripts
+
 ## Architecture
 
 **Two-stage prediction pipeline:**
 1. **Elo model** (`elo_model.py` -> `NFLElo` class) -- base team ratings adjusted for home field, altitude (Denver only at 5280ft), player strength, rest days (centered at 7 days, not 1), travel fatigue, pace mismatch, injuries, and strength of schedule
-2. **XGBoost ensemble** (`enhanced_model.py`) -- 80% Elo / 20% XGBoost using 31 rolling features per team (5-game window via `TeamTracker`, includes Pythagorean win expectation, streaks, consistency, and trend)
+2. **XGBoost ensemble** (`enhanced_model.py`) -- 80% Elo / 20% XGBoost using 31 rolling features per game (5-game window via `TeamTracker`, includes Pythagorean win expectation, streaks, consistency, and trend)
 3. **Platt calibration** (`platt.py`) -- logistic regression on raw probabilities for well-calibrated outputs
 
 **Data flow:**
 - `data_games.py` / `data_players.py` -> download from ESPN public API with 6-hour cache (`config.is_cache_stale`)
+- `advanced_stats.py` -> EPA, CPOE, success rate via nfl_data_py (nflverse play-by-play); referee tendencies; cached to `nfl_epa_stats.csv`
 - `injuries.py` -> ESPN JSON API with 4-hour cache; position-based impact (QB out = -50 Elo)
+- `weather.py` -> Open-Meteo weather data for outdoor stadium games
 - `build_model.py` -> constructs `NFLElo` from settings + game CSV, applies season regression, sets player scores
 - `backtest.py` -> walk-forward backtest, also houses grid search and genetic (`scipy.optimize.differential_evolution`) optimizer
 - `main.py` -> CLI entry point, `dispatch()` routes all commands, team name input triggers prediction flow
@@ -33,9 +99,16 @@ First run auto-downloads game data (ESPN API), player stats, and injury reports 
 - K-factor = 28.36 (fewer games per season than NBA, each game matters more)
 - Home advantage = 25.55 Elo (~53.6% NFL home win rate)
 - Rest factor = 0.68, centered at 7 days (NFL teams play weekly)
+- B2B penalty = 5.45 (Thursday games after Sunday, short turnaround)
+- Bye week factor = 0.0 (currently disabled, tunable)
+- Division factor = 31.33 (rivalry/familiarity adjustment)
+- Win streak factor = 20.0, homestand factor = 20.0, season phase factor = 20.0
+- Player boost = 24.61, altitude factor = 0.66
+- Playoff HCA factor = 1.1, rest advantage cap = 3.32
 - MOV formula: `log(max(1, abs(margin)) + 1)` (NFL-specific)
 - Season spans two calendar years: `season = year if month >= 9 else year - 1`
 - Only Denver Broncos get altitude bonus (5280ft)
+- Advanced stats: EPA, CPOE, success rate from nfl_data_py (nflverse) used in enhanced model features
 
 **State files (all gitignored, generated at runtime):**
 - `nfl_elo_settings.json` -- tunable parameters (K-factor, home advantage, etc.)
@@ -163,6 +236,25 @@ All 16 advanced backtesting techniques are implemented in `backtest.py`, `enhanc
 
 **Phase 6: P&L Simulation**
 17. `kelly` -- Position sizing backtest
+
+## Mega-Ensemble
+
+The `mega_predictor.py` module implements a 31-model mega-ensemble predictor. Each model runs independently on the same walk-forward game loop, producing a raw probability. A meta-learner (Ridge, Logistic, or XGBoost) combines all 31 outputs into a single calibrated adjustment that is clamped to +/- `max_adj` (default 0.10) around the Elo anchor probability.
+
+**Key commands:**
+- `mega` -- Run full mega-ensemble backtest with all enabled models
+- `mega optimize` -- 7-phase per-model exhaustive optimization (54 hyperparameters)
+- `mega tune` -- Per-model solo optimization (Phase 1 only)
+- `mega tournament` -- Head-to-head model comparison (Phase 2 only)
+- `mega ablation` -- Ablation study: test each model's contribution, auto-prune bad ones
+- `mega models` -- Show all 31 models with ON/OFF status
+- `mega on/off <model>` -- Enable/disable individual models
+- `mega settings` -- Show all mega parameter values
+- `mega set <param>=<value>` -- Set mega parameters (e.g., `mega set adj=0.10`)
+
+**Model tiers:** Tier 0 (Elo, XGBoost), Tier 1 (HMM, Kalman, PageRank, LightGBM, CatBoost, MLP, LSTM), Tier 2 (GARCH, Fourier, Survival, Copula), Tier 3 (InfoTheory, Momentum, Markov, Clustering, GameTheory), Tier 4 (Poisson, Glicko-2, Bradley-Terry, Monte Carlo, Random Forest), Tier 5 (SRS, Colley, Log5, Pythagorean, ExpSmoothing, MeanReversion), Tier 6 (Weather, Odds).
+
+All 31 models run in parallel via `ThreadPoolExecutor`. Settings stored in `nfl_mega_settings.json`.
 
 ## Conventions
 

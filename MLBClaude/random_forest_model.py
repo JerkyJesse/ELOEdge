@@ -155,7 +155,7 @@ class RandomForestPredictor:
             self._trees.append(tree)
 
         self._fitted = True
-        logging.info("Random Forest trained: %d trees, %d features, %d samples",
+        logging.debug("Random Forest trained: %d trees, %d features, %d samples",
                       len(self._trees), X.shape[1], n)
 
     def predict_proba(self, X):

@@ -179,8 +179,8 @@ def build_model(csv_file=GAMES_FILE):
                     dt = pd.to_datetime(row["date"])
                     # NFL season boundary: month >= 9 = new season year
                     row_season = dt.year if dt.month >= 9 else dt.year - 1
-                except Exception:
-                    pass
+                except Exception as e:
+                    logging.debug("Season date parse error: %s", e)
             if row_season and prev_season and row_season != prev_season:
                 logging.info("Season boundary %d->%d: regressing ratings to mean",
                              prev_season, row_season)
@@ -194,8 +194,8 @@ def build_model(csv_file=GAMES_FILE):
             if "date" in row and pd.notna(row["date"]):
                 try:
                     game_date = pd.to_datetime(row["date"])
-                except Exception:
-                    pass
+                except Exception as e:
+                    logging.debug("Game date parse error: %s", e)
             model.update_game(
                 row["home_team"], row["away_team"],
                 row["home_score"], row["away_score"],

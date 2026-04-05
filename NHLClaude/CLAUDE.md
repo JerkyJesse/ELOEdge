@@ -15,6 +15,70 @@ python main.py
 
 First run auto-downloads game data (ESPN API), player stats, and injury reports (ESPN). Then runs a backtest to fit the Platt calibration scaler and enters the interactive CLI loop.
 
+## File Map
+
+**Core pipeline:**
+- `main.py` -- CLI entry point, `dispatch()` routes all commands
+- `config.py` -- constants, file paths, settings load/save, 32-team TEAM_ABBR dict, NHL_API_ABBR mapping
+- `elo_model.py` -- `NHLElo` class: ratings, adjusters, goalie sub-ratings (K_GOALIE=6), win_prob(), update_game()
+- `build_model.py` -- constructs NHLElo from settings + game CSV, season regression, altitude bonus calculation
+- `backtest.py` -- walk-forward backtest, grid/genetic/bayesian optimizers, advanced validation
+- `enhanced_model.py` -- XGBoost ensemble (80/20 Elo+XGB), TeamTracker, SHAP
+- `platt.py` -- Platt scaling + isotonic regression + beta calibration
+- `metrics.py` -- ECE, MCE, BSS, conformal prediction
+
+**Data & features:**
+- `data_games.py` -- ESPN game data download + cache
+- `data_players.py` -- ESPN player stats download (skater + goalie stats)
+- `injuries.py` -- ESPN injury reports, goalie-weighted Elo impact (star goalie out = -35 Elo)
+- `backfill_goalies.py` -- NHL-unique: backfills starting goalie data into game CSV using NHL API boxscores
+- `weather.py` -- weather data (less relevant for NHL indoor arenas, but available)
+- `odds_tracker.py` -- odds/line tracking
+
+**Mega-ensemble:**
+- `mega_predictor.py` -- 31-model mega-ensemble runner (MegaPredictor class)
+- `mega_config.py` -- mega settings, model registry, tier definitions
+- `mega_backtest.py` -- mega-ensemble walk-forward backtest
+- `mega_optimizer.py` -- 7-phase per-model optimization
+- `meta_learner.py` -- Ridge/Logistic/XGBoost meta-learner for combining model outputs
+
+**Individual models (mega-ensemble components):**
+- `gbm_models.py` -- LightGBM, CatBoost
+- `nn_models.py` -- MLP, LSTM neural network models
+- `random_forest_model.py` -- Random Forest
+- `hmm_model.py` -- Hidden Markov Model
+- `kalman_model.py` -- Kalman Filter
+- `network_model.py` -- PageRank network model
+- `volatility_model.py` -- GARCH volatility
+- `signal_model.py` -- Fourier signal decomposition
+- `survival_model.py` -- Survival analysis
+- `copula_model.py` -- Copula dependency model
+- `information_theory_model.py` -- Information theory (entropy)
+- `momentum_model.py` -- Momentum/trend model
+- `markov_chain_model.py` -- Markov chain transitions
+- `clustering_model.py` -- Team clustering
+- `game_theory_model.py` -- Game theory (Nash equilibrium)
+- `poisson_model.py` -- Poisson goal model
+- `glicko_model.py` -- Glicko-2 rating system
+- `bradley_terry_model.py` -- Bradley-Terry paired comparisons
+- `monte_carlo_model.py` -- Monte Carlo simulation
+- `classic_models.py` -- SRS, Colley, Log5, Pythagorean, ExpSmoothing, MeanReversion
+
+**Infrastructure:**
+- `color_helpers.py` -- colored output wrappers (cok, cerr, cwarn, chi, cdim, cbold)
+- `cache_utils.py` -- unified cache management, staleness checks
+- `elo_set_handler.py` -- Elo settings import/export/backup
+- `kalshi.py` -- Kalshi prediction market integration
+- `live_scores.py` -- ESPN live scoreboard
+- `auto_resolve.py` -- auto-settle positions from final scores
+- `predict_ledger.py` -- Predicts $1 contract trading ledger
+- `html_generator.py` -- Blogger HTML output for predictions
+- `help_system.py` -- CLI help text
+- `accuracy_test.py` -- standalone quick backtest script
+
+**Optimization utilities:**
+- `run_optimize.py`, `quick_optimizer.py`, `single_param_opt.py`, `accuracy_optimize.py`, `sweep_enhanced.py`, `run_enhanced_all.py` -- various optimization scripts
+
 ## Architecture
 
 **Two-stage prediction pipeline:**
@@ -43,7 +107,8 @@ First run auto-downloads game data (ESPN API), player stats, and injury reports 
 - Optimizer objective is `LogLoss * 8 + Brier * 40` — this weighting is intentional
 - `backtest_model(..., fit_platt=True)` should only be called for user-facing runs, never inside optimizer loops (leakage + speed)
 - MOV (margin of victory) uses `log(max(1.0, abs(goal_diff)) + 1.0)` — log compression appropriate for hockey's lower-scoring games
-- Only one altitude team: Colorado Avalanche (5280 ft)
+- Two altitude teams: Colorado Avalanche (5280 ft) and Utah Hockey Club (4226 ft, formerly Arizona Coyotes, relocated 2024). Altitude bonus scales by `(elevation - 4000) / (5280 - 4000)` so Utah gets a partial bonus relative to Denver.
+- Overtime factor = 5.0 (adjustment for OT game outcomes)
 - NHL season spans two calendar years (Oct–Jun); season boundary detection: `year + 1 if month >= 10`
 
 ## Backtesting & Optimization
@@ -248,14 +313,49 @@ Predicts contracts are $1 binary options. The ledger tracks:
 
 ## NHL-Specific Notes
 
-- **32 NHL teams** with full name-to-abbreviation mapping in `config.py`
+- **32 NHL teams** with full name-to-abbreviation mapping in `config.py`; NHL API abbreviations mapped separately via `NHL_API_ABBR`
 - **Season structure**: Oct-Jun, spanning two calendar years; season detection uses `year + 1 if month >= 10`
 - **No ties**: NHL games always have a winner (overtime/shootout if needed); final score is what matters
-- **Goaltender impact**: Goalie injuries are massive in hockey; star goaltender out = -35 Elo equivalent, starter = -25, backup = -15
 - **Injury statuses**: Out, Day-to-Day, IR (Injured Reserve), LTIR (Long-Term Injured Reserve)
 - **Player stats**: Points, Goals, Assists for skaters; GAA, SVP, Wins, Shutouts for goalies; composite weight: skaters 55% / goalies 45%
 - **Live scores**: ESPN public scoreboard API; period display (P1, P2, P3, OT, SO) instead of quarters
-- **ESPN API**: All data from ESPN public JSON API (`site.api.espn.com`); 0.5s sleep between API calls to be respectful
+- **ESPN API**: All data from ESPN public JSON API (`site.api.espn.com`); 0.5s sleep between API calls
+
+### Goaltender System
+
+The NHL system's most distinctive feature is its per-goalie cumulative Elo sub-rating system. Because a starting goaltender can single-handedly win or lose a hockey game:
+
+- **K_GOALIE = 6**: Per-goalie Elo update constant (class constant on `NHLElo`)
+- **Starter boost = 5.0**: Additional Elo adjustment when a confirmed starter is known
+- **50% season regression**: Goalie ratings regress more aggressively than team ratings (33%) at season boundaries, reflecting year-to-year goalie volatility
+- **Player composite**: skaters 55% / goalies 45% weight in overall player score
+- **Goalie injury impact tiers** (in `injuries.py`):
+  - Star goaltender (20+ wins or .910+ SV%): -35 Elo
+  - Starting goaltender (10+ wins): -25 Elo
+  - Backup goaltender: -15 Elo
+- **Backfill tool**: `backfill_goalies.py` (NHL-unique) retroactively fills starting goalie data into `nhl_recent_games.csv` using the NHL API boxscore endpoints
+
+### NHL Default Parameters
+
+| Parameter | Default | Notes |
+|-----------|---------|-------|
+| K-factor | 5.0 | Low K for 82-game season (gradual rating changes) |
+| Home advantage | 26.0 | ~52% NHL home win rate |
+| Player boost | 10.0 | Impact of player quality differential |
+| Starter boost | 5.0 | Known starting goalie advantage |
+| Rest factor | 12.0 | Rest days impact |
+| B2B penalty | 18.0 | Back-to-back game penalty (significant in hockey) |
+| Travel factor | 8.0 | Cross-country travel fatigue |
+| SOS factor | 10.0 | Strength of schedule adjustment |
+| Pace factor | 10.0 | Pace mismatch adjustment |
+| Division factor | 5.0 | Divisional rivalry familiarity |
+| Overtime factor | 5.0 | OT game outcome adjustment |
+| Road trip factor | 2.5 | Extended road trip penalty |
+| Homestand factor | 3.0 | Extended homestand bonus |
+| Win streak factor | 2.0 | Hot/cold streak adjustment |
+| Season phase factor | 2.5 | Early/mid/late season adjustment |
+| Altitude factor | 4.0 | Multiplier for altitude bonus (Colorado, Utah) |
+| Season regression | 33% | Pull ratings toward mean at season boundaries |
 
 ## CLI Commands
 
@@ -278,6 +378,25 @@ Enter a team name to start a prediction. Core commands:
 **Settings**: `set k=8.0`, `set home=25`, `set boost=20`, `set rest=15`, `set travel=20`, `set sos=10`, `set pace=20`, `set playoff=0.6`, `set form=0`
 
 `help` for overview, `help <command>` for details, `help advanced` for all validation commands, `quit` to exit.
+
+## Mega-Ensemble
+
+The `mega_predictor.py` module implements a 31-model mega-ensemble predictor. Each model runs independently on the same walk-forward game loop, producing a raw probability. A meta-learner (Ridge, Logistic, or XGBoost) combines all 31 outputs into a single calibrated adjustment that is clamped to +/- `max_adj` (default 0.10) around the Elo anchor probability.
+
+**Key commands:**
+- `mega` -- Run full mega-ensemble backtest with all enabled models
+- `mega optimize` -- 7-phase per-model exhaustive optimization (54 hyperparameters)
+- `mega tune` -- Per-model solo optimization (Phase 1 only)
+- `mega tournament` -- Head-to-head model comparison (Phase 2 only)
+- `mega ablation` -- Ablation study: test each model's contribution, auto-prune bad ones
+- `mega models` -- Show all 31 models with ON/OFF status
+- `mega on/off <model>` -- Enable/disable individual models
+- `mega settings` -- Show all mega parameter values
+- `mega set <param>=<value>` -- Set mega parameters (e.g., `mega set adj=0.10`)
+
+**Model tiers:** Tier 0 (Elo, XGBoost), Tier 1 (HMM, Kalman, PageRank, LightGBM, CatBoost, MLP, LSTM), Tier 2 (GARCH, Fourier, Survival, Copula), Tier 3 (InfoTheory, Momentum, Markov, Clustering, GameTheory), Tier 4 (Poisson, Glicko-2, Bradley-Terry, Monte Carlo, Random Forest), Tier 5 (SRS, Colley, Log5, Pythagorean, ExpSmoothing, MeanReversion), Tier 6 (Weather, Odds).
+
+All 31 models run in parallel via `ThreadPoolExecutor`. Settings stored in `nhl_mega_settings.json`.
 
 ## Conventions
 

@@ -47,8 +47,8 @@ Every model runs independently on the same game-by-game walk-forward loop. Their
 
 | # | Model | Year | Method | Description |
 |---|-------|------|--------|-------------|
-| 1 | **Elo** | 1960 | Paired comparison rating | 24+ adjusters: home advantage, MOV, rest/bye week, travel, altitude, form, SOS, divisional, conference, playoff detection. 32 teams tracked. K=35.0 for 17-game season with logarithmic MOV. |
-| 2 | **XGBoost** | 2016 | Gradient boosted trees | 31 rolling features per game (win%, Pythagorean, streaks, consistency, scoring trend, rest, travel). Walk-forward training with 80/20 Elo/XGBoost blend. SHAP feature importance built in. |
+| 1 | **Elo** | 1960 | Paired comparison rating | 24+ adjusters: home field advantage, MOV, rest/bye week, travel, altitude (Denver), form, SOS, divisional rivalry, conference, playoff detection. All 32 NFL teams tracked. K=28.36 tuned for the 17-game season with logarithmic MOV dampening. |
+| 2 | **XGBoost** | 2016 | Gradient boosted trees | 31 rolling features per game (win%, Pythagorean expectation, streaks, scoring consistency, trend, rest days, travel). Walk-forward training with 80/20 Elo/XGBoost blend. SHAP feature importance built in. |
 
 ### Tier 1 -- Proven Models
 
@@ -206,7 +206,7 @@ Every model runs independently on the same game-by-game walk-forward loop. Their
 
 ### Elo-Anchored Bounded Adjustment
 
-The Elo model serves as the anchor probability. The meta-learner (trained on all 31 base model outputs) produces an adjustment that is **clamped** to `+/- max_adj` (default 0.20). This means even if all exotic models disagree with Elo, the final probability can shift at most 20 percentage points. This design prevents catastrophic predictions from untested models while allowing proven signal to improve accuracy.
+The Elo model serves as the anchor probability. The meta-learner (trained on all 31 base model outputs) produces an adjustment that is **clamped** to `+/- max_adj` (default 0.10). This means even if all exotic models disagree with Elo, the final probability can shift at most 10 percentage points. This design prevents catastrophic predictions from untested models while allowing proven signal to improve accuracy.
 
 ### Multithreaded Training
 
@@ -225,19 +225,23 @@ Every parameter in this system was chosen with the specific structure of the Nat
 | Parameter | Default | Rationale |
 |-----------|---------|-----------|
 | **K-factor** | 28.36 | NFL plays only 17 regular season games -- far fewer than MLB (162) or NBA (82). A much higher K means each individual game moves ratings significantly. Every win and loss matters enormously in a short season, so the system must react quickly. |
-| **Home advantage** | 25.55 Elo (~53.6%) | NFL home teams historically win about 53-57% of games. 28 Elo points in the standard Elo formula yields approximately 53.9% expected win rate. Combined with other home-related factors (rest, SOS, division), the effective home win rate reaches observed levels. |
-| **Player scoring weight** | Passing-heavy | Quarterback play dominates football outcomes more than any single position in other sports. The player scoring composite weights passing stats (yards, TDs, passer rating) heavily, with rushing and receiving as secondary signals. |
-| **Bye week factor** | Configurable | NFL teams get one bye week per season (a week off with no game). Teams coming off a bye have historically performed better due to extra rest, preparation time, and injury recovery. The bye_week_factor parameter quantifies this advantage. |
+| **Home advantage** | 25.55 Elo (~53.6%) | NFL home teams historically win about 53-57% of games. 25.55 Elo points in the standard Elo formula yields approximately 53.6% expected win rate. Combined with other home-related factors (rest, SOS, division), the effective home win rate reaches observed levels. |
+| **Player scoring weight** | Passing-heavy (24.61) | Quarterback play dominates football outcomes more than any single position in other sports. The player scoring composite weights passing stats (yards, TDs, passer rating) heavily, with rushing and receiving as secondary signals. A QB marked Out costs the team approximately -50 Elo points. |
+| **Rest factor** | 0.68 (centered at 7 days) | NFL teams play weekly, so rest is centered at 7 days instead of 1 day like daily sports. Extra rest (bye week = 14 days, Thursday-to-Sunday = 10 days) or short rest (Sunday-to-Thursday = 4 days) creates significant advantages and disadvantages. The rest advantage is capped at 3.32 to prevent extreme values. |
+| **B2B penalty** | 5.45 | Thursday Night Football and other short-week games (3-4 days rest vs the standard 7) produce measurably worse performance. The 5.45 Elo point penalty captures the fatigue, reduced preparation time, and increased injury risk of short-turnaround games. |
+| **Bye week factor** | 0.0 (disabled) | NFL teams get one bye week per season (a week off with no game). Despite the conventional wisdom that teams play better after a bye, optimization found no statistically significant advantage once rest days are already accounted for by the rest_factor parameter. Currently zeroed out. |
 | **Rolling window** | 5 games | Much narrower than MLB's 15-game window because NFL teams play only 17 games per season. A 5-game window represents nearly a third of the season and captures meaningful form changes without excessive noise. |
-| **Altitude factor** | Denver-only | Only the Denver Broncos play at significant altitude (Empower Field at Mile High, 5,280 ft). The thin air affects passing, kicking distance, and player stamina. No other NFL stadium has meaningful altitude effects. |
-| **Weather impact** | Critical | Unlike indoor sports, NFL games are played outdoors in most stadiums. Snow, rain, wind, and extreme cold dramatically affect passing accuracy, kicking, and ball handling. Weather is the most impactful environmental factor in NFL prediction. |
-| **Playoff HCA factor** | 1.1 | Genetic optimization found playoff home advantage is slightly amplified compared to regular season. Higher-seeded teams benefit from familiar stadiums and playoff atmosphere. The 1.1 multiplier increases home advantage in the postseason. |
-| **Season regression** | 33% | At the start of each new season, all ratings regress 33% toward 1500. This accounts for roster turnover, free agency, coaching changes, the draft, and the reality that last year's team is not this year's team. |
-| **MOV formula** | log(max(1, abs(margin)) + 1) | Point margins in football follow a roughly logarithmic value curve -- the difference between a 3-point win and a 10-point win is much more informative than between a 35-point win and a 42-point win. The log transform prevents blowouts from having outsized influence. |
-| **Season calendar** | September-February (cross-year) | Unlike MLB which runs within one calendar year, the NFL season crosses the new year boundary. If month >= 9, it is the current year's season. If month <= 8, it is the previous year's season. This affects season detection and regression timing. |
-| **Rest factor** | 0.68 (centered at 7 days) | NFL teams play weekly, so rest is centered at 7 days instead of 1 day like daily sports. Extra rest (bye week = 14 days, Thursday-to-Sunday = 10 days) or short rest (Sunday-to-Thursday = 4 days) creates significant advantages and disadvantages. |
-| **Pythagorean exponent** | ~2.37 | The Pythagorean theorem for football uses an exponent of approximately 2.37, reflecting the scoring environment in NFL games. This is much lower than NBA (~14) because football scores are lower and margins are tighter. |
-| **Division factor** | Configurable | Divisional opponents play each other twice per year and have deep familiarity. Games between division rivals tend to be closer than talent gaps suggest, reducing the predictive edge of pure ratings. |
+| **Altitude factor** | 0.66 (Denver only) | Only the Denver Broncos play at significant altitude (Empower Field at Mile High, 5,280 ft). The thin air affects passing distance, kicking range, and player stamina. No other NFL stadium has meaningful altitude effects. The bonus is computed from the excess home win rate at altitude vs league average. |
+| **Weather impact** | Critical (outdoor stadiums) | Unlike indoor sports, most NFL games are played outdoors. Snow, rain, wind, and extreme cold dramatically affect passing accuracy, kicking distance, and ball handling. Weather is the most impactful environmental factor in NFL prediction. Open-Meteo provides free forecasts for all 30 outdoor stadiums. |
+| **Playoff HCA factor** | 1.1 | Optimization found that playoff home advantage is slightly amplified compared to regular season. Higher-seeded teams earned homefield; the combination of familiar stadium, rested roster, and playoff atmosphere produces a 10% boost to the standard home advantage. January/February games are auto-detected as postseason. |
+| **Division factor** | 31.33 | Divisional opponents play each other twice per year and have deep familiarity. Games between division rivals (8 divisions: AFC East/North/South/West, NFC East/North/South/West) tend to be closer than talent gaps suggest, reducing the predictive edge of pure ratings. |
+| **Season regression** | 33% | At the start of each new season (September), all ratings regress 33% toward 1500. This accounts for roster turnover, free agency, coaching changes, the NFL Draft, and the reality that last year's team is not this year's team. Detected by month >= 9 in the calendar. |
+| **MOV formula** | log(max(1, abs(margin)) + 1) | Point margins in football follow a roughly logarithmic value curve -- the difference between a 3-point win (field goal) and a 10-point win is much more informative than between a 35-point win and a 42-point win. The log transform prevents garbage-time blowouts from having outsized influence on ratings. |
+| **Season calendar** | September-February (cross-year) | Unlike MLB which runs within one calendar year, the NFL season crosses the new year boundary. If month >= 9, it is the current year's season. If month <= 8, it is the previous year's season. This affects season detection, regression timing, and data partitioning. |
+| **Pythagorean exponent** | ~2.37 | The Pythagorean theorem for football uses an exponent of approximately 2.37 (per Pro Football Reference), reflecting the scoring environment in NFL games. This is much lower than NBA (~14) because football scores are lower and margins are tighter. Used in both the XGBoost feature pipeline and the Pythagorean model. |
+| **Win streak factor** | 20.0 | Momentum matters in football. A team on a 5-game winning streak carries psychological and tactical advantages that pure ratings may not capture. The win_streak_factor adds a momentum signal based on recent consecutive outcomes. |
+| **Homestand factor** | 20.0 | Consecutive home games provide compounding advantages: no travel, familiar surroundings, fan energy, and sleep in own beds. The homestand factor rewards teams playing multiple consecutive home games. |
+| **Season phase factor** | 20.0 | Early-season games (Weeks 1-4) are less predictable because rosters are still gelling, new schemes are being installed, and ratings have not yet converged. This factor dampens confidence in early-season predictions and increases it as the season progresses. |
 
 ---
 
@@ -357,48 +361,48 @@ Type `set <param>=<value>` or `set <alias>=<value>`. Example: `set k=20`, `set h
 
 | Parameter | Aliases | Type | Default | Description |
 |-----------|---------|------|---------|-------------|
-| `k` | `k_factor` | float | 28.36 | Elo K-factor (learning rate per game) |
-| `base_rating` | `base`, `rating` | float | 1500.0 | Starting Elo rating for all teams |
-| `home_adv` | `home`, `hca`, `home_advantage` | float | 25.55 | Home field advantage in Elo points |
-| `use_mov` | `mov`, `margin` | bool | true | Use margin of victory adjustment |
+| `k` | `k_factor` | float | 28.36 | Elo K-factor (learning rate per game). High because only 17 games per season. |
+| `base_rating` | `base`, `rating` | float | 1500.0 | Starting Elo rating for all 32 teams |
+| `home_adv` | `home`, `hca`, `home_advantage` | float | 25.55 | Home field advantage in Elo points (~53.6% implied) |
+| `use_mov` | `mov`, `margin` | bool | true | Use margin of victory adjustment: log(max(1, abs(margin)) + 1) |
 
 #### Player Strength
 
 | Parameter | Aliases | Type | Default | Description |
 |-----------|---------|------|---------|-------------|
-| `player_boost` | `boost`, `player` | float | 24.61 | Team-level player strength boost |
+| `player_boost` | `boost`, `player` | float | 24.61 | Team-level player strength boost (passing-heavy composite) |
 
 #### Margin of Victory
 
 | Parameter | Aliases | Type | Default | Description |
 |-----------|---------|------|---------|-------------|
 | `mov_base` | `mov_mult`, `mov_constant` | float | 0.8 | MOV multiplier constant (log curve shift) |
-| `mov_cap` | `movcap`, `margin_cap` | float | 0.0 | Maximum MOV adjustment cap |
+| `mov_cap` | `movcap`, `margin_cap` | float | 0.0 | Maximum MOV adjustment cap (0 = uncapped) |
 
 #### Rest / Schedule
 
 | Parameter | Aliases | Type | Default | Description |
 |-----------|---------|------|---------|-------------|
-| `rest_factor` | `rest` | float | 0.68 | Rest days advantage factor (centered at 7 days) |
+| `rest_factor` | `rest` | float | 0.68 | Rest days advantage factor (centered at 7 days, not 1) |
 | `rest_advantage_cap` | `restcap`, `rest_cap` | float | 3.32 | Maximum rest advantage multiplier |
-| `bye_week_factor` | `bye`, `bye_week`, `bye_factor` | float | 0.0 | Bye week rest advantage bonus (NFL-specific) |
-| `b2b_penalty` | `b2b`, `back_to_back` | float | 5.45 | Back-to-back (short week) game penalty |
+| `bye_week_factor` | `bye`, `bye_week`, `bye_factor` | float | 0.0 | Bye week rest advantage bonus (currently disabled) |
+| `b2b_penalty` | `b2b`, `back_to_back` | float | 5.45 | Short-week game penalty (Thursday Night Football, etc.) |
 | `road_trip_factor` | `roadtrip`, `road_trip` | float | 0.0 | Extended road trip penalty |
-| `homestand_factor` | `homestand` | float | 20.0 | Extended homestand bonus |
+| `homestand_factor` | `homestand` | float | 20.0 | Extended homestand bonus (consecutive home games) |
 
 #### Travel / Venue
 
 | Parameter | Aliases | Type | Default | Description |
 |-----------|---------|------|---------|-------------|
-| `travel_factor` | `travel` | float | 0.0 | Elo penalty per timezone crossed |
-| `east_travel_penalty` | `east_travel`, `eastbound` | float | 0.0 | Extra penalty for eastbound travel |
-| `altitude_factor` | `altitude`, `alt` | float | 0.66 | Altitude bonus (Denver Broncos only) |
+| `travel_factor` | `travel` | float | 0.0 | Elo penalty per timezone crossed (32 teams span 4 US timezones) |
+| `east_travel_penalty` | `east_travel`, `eastbound` | float | 0.0 | Extra penalty for eastbound travel (jet lag asymmetry) |
+| `altitude_factor` | `altitude`, `alt` | float | 0.66 | Altitude bonus multiplier (Denver Broncos at 5,280 ft only) |
 
 #### Form / Momentum
 
 | Parameter | Aliases | Type | Default | Description |
 |-----------|---------|------|---------|-------------|
-| `form_weight` | `form` | float | 20.0 | Recent form weight |
+| `form_weight` | `form` | float | 20.0 | Recent form weight (last 5 games in a 17-game season) |
 | `win_streak_factor` | `streak`, `win_streak` | float | 20.0 | Win/loss streak momentum factor |
 | `mean_reversion` | `reversion`, `regress` | float | 0.0 | Mean reversion after extreme results |
 | `season_regress` | `season_regression`, `regress_pct` | float | 0.33 | Season boundary regression fraction toward 1500 |
@@ -408,16 +412,16 @@ Type `set <param>=<value>` or `set <alias>=<value>`. Example: `set k=20`, `set h
 | Parameter | Aliases | Type | Default | Description |
 |-----------|---------|------|---------|-------------|
 | `sos_factor` | `sos`, `strength_of_schedule` | float | 0.0 | Strength of schedule weight |
-| `division_factor` | `division`, `div` | float | 31.33 | Divisional game confidence reducer |
+| `division_factor` | `division`, `div` | float | 31.33 | Divisional game confidence reducer (AFC/NFC divisions) |
 | `conference_factor` | `conference`, `conf` | float | 0.0 | Conference (AFC vs NFC) game adjustment |
-| `series_adaptation` | `series`, `adaptation` | float | 0.0 | Series adaptation factor (rematches) |
+| `series_adaptation` | `series`, `adaptation` | float | 0.0 | Series adaptation factor (rematches within the season) |
 
 #### Scoring Model
 
 | Parameter | Aliases | Type | Default | Description |
 |-----------|---------|------|---------|-------------|
 | `pace_factor` | `pace`, `tempo` | float | 0.0 | Scoring environment mismatch adjustment |
-| `pyth_factor` | `pyth`, `pythagorean` | float | 0.0 | Pythagorean expected W% adjustment |
+| `pyth_factor` | `pyth`, `pythagorean` | float | 0.0 | Pythagorean expected W% adjustment (exponent ~2.37) |
 | `scoring_consistency_factor` | `consistency`, `scoring_consistency` | float | 0.0 | Penalty for volatile scoring patterns |
 | `home_road_factor` | `home_road`, `split` | float | 0.0 | Team-specific home/road split bonus |
 
@@ -425,14 +429,14 @@ Type `set <param>=<value>` or `set <alias>=<value>`. Example: `set k=20`, `set h
 
 | Parameter | Aliases | Type | Default | Description |
 |-----------|---------|------|---------|-------------|
-| `playoff_hca_factor` | `playoff`, `playoff_hca`, `postseason` | float | 1.1 | Playoff home advantage multiplier |
-| `season_phase_factor` | `phase`, `season_phase` | float | 20.0 | Early-season dampener |
+| `playoff_hca_factor` | `playoff`, `playoff_hca`, `postseason` | float | 1.1 | Playoff home advantage multiplier (Jan-Feb games auto-detected) |
+| `season_phase_factor` | `phase`, `season_phase` | float | 20.0 | Early-season dampener (Weeks 1-4 less predictable) |
 
 #### K-Factor Variants
 
 | Parameter | Aliases | Type | Default | Description |
 |-----------|---------|------|---------|-------------|
-| `k_decay` | `kdecay`, `k_reduction` | float | 0.0 | K-factor decay over the season |
+| `k_decay` | `kdecay`, `k_reduction` | float | 0.0 | K-factor decay over the season (reduces reactivity late) |
 | `surprise_k` | `surprise`, `upset_k` | float | 0.0 | Extra K for surprise/upset results |
 
 #### Account / Trading
@@ -478,6 +482,8 @@ Type `mega set <param>=<value>` or `mega set <alias>=<value>`. Example: `mega se
 | 4 | `autoopt` | Automatic pipeline (grid -> genetic -> bayesian) | 7 params, best of all three | ~30-45m |
 | 5 | `superopt` | Exhaustive 7-phase multi-round optimization | 9 params, hours of search | ~2-4h |
 | 6 | `singleopt` | Coordinate descent (one param at a time) | All params, accuracy-focused | ~15-30m |
+
+**Objective function**: `-(LogLoss * 8 + Brier * 40)`. This weighting is intentional -- the Brier component penalizes miscalibration more heavily than raw discrimination, producing probabilities that are well-calibrated rather than just accurate.
 
 **`superopt` 7-phase detail:**
 
@@ -541,7 +547,7 @@ All data sources are **completely free**. No paid APIs.
 |--------|--------------|---------------|----------|------------|
 | **ESPN Public API** | `requests` (pip) | Game scores, schedules, rosters, live scores | None needed | Unlimited |
 | **nfl_data_py / nflverse** | `nfl_data_py` (pip) | EPA, CPOE, success rate, play-by-play, officials | None needed | Unlimited (pre-compiled CSVs from nflverse) |
-| **ESPN Injuries** | ESPN public API | Injury reports, IR, Doubtful, Questionable, Out | None needed | Unlimited |
+| **ESPN Injuries** | ESPN public API | Injury reports: IR, Doubtful, Questionable, Out | None needed | Unlimited |
 | **Open-Meteo Weather** | `open-meteo.com` REST API | Temperature, wind, humidity, precipitation | None needed | 10,000/day |
 | **The Odds API** | `the-odds-api.com` | Moneyline odds from major sportsbooks | Free key (500 req/month) | 500/month |
 
@@ -560,6 +566,10 @@ The Odds API provides real-time moneyline odds. It is free for up to 500 request
 ### Weather (No Setup Required)
 
 Open-Meteo provides free weather forecasts with no API key. The `weather` command automatically geolocates NFL stadiums and pulls temperature, wind speed, wind direction, humidity, and precipitation probability. Weather is especially important for NFL -- outdoor stadiums in cold-weather cities (Green Bay, Buffalo, Chicago, Denver) can see snow, sub-zero temperatures, and heavy winds that dramatically affect game outcomes.
+
+### Advanced Stats via nfl_data_py (No Setup Required)
+
+The nfl_data_py package provides access to the entire nflverse data ecosystem -- pre-compiled CSVs with play-by-play data, EPA (Expected Points Added), CPOE (Completion Percentage Over Expected), success rates, and officials assignments. No API key, no rate limits, completely free. Install with `pip install nfl_data_py`.
 
 ---
 
@@ -590,6 +600,20 @@ Jan  Feb  Mar  Apr  May  Jun  Jul  Aug  Sep  Oct  Nov  Dec
 
 NFL plays games primarily on Sundays, with Monday Night Football and Thursday Night Football adding additional game days. The regular season runs from early September through early January (18 weeks for 17 games plus a bye), followed by playoffs through the Super Bowl in early February. The caching system treats Sunday/Monday/Thursday as potential game days during the active season.
 
+### 32 NFL Teams (8 Divisions)
+
+```
+AFC East:  Buffalo Bills, Miami Dolphins, New England Patriots, New York Jets
+AFC North: Baltimore Ravens, Cincinnati Bengals, Cleveland Browns, Pittsburgh Steelers
+AFC South: Houston Texans, Indianapolis Colts, Jacksonville Jaguars, Tennessee Titans
+AFC West:  Denver Broncos, Kansas City Chiefs, Las Vegas Raiders, Los Angeles Chargers
+
+NFC East:  Dallas Cowboys, New York Giants, Philadelphia Eagles, Washington Commanders
+NFC North: Chicago Bears, Detroit Lions, Green Bay Packers, Minnesota Vikings
+NFC South: Atlanta Falcons, Carolina Panthers, New Orleans Saints, Tampa Bay Buccaneers
+NFC West:  Arizona Cardinals, Los Angeles Rams, San Francisco 49ers, Seattle Seahawks
+```
+
 ---
 
 ## Performance
@@ -617,17 +641,18 @@ GPU is entirely optional. All models fall back to CPU silently. No configuration
 
 ### Typical Backtest Results
 
-Results vary by season and parameter tuning. Typical ranges:
+Results from smoke testing on ~570 games (approximately 2 NFL seasons):
 
-- **Baseline accuracy**: ~65.61%
-- **Platt-calibrated accuracy**: ~65.61%
-- **Full mega-ensemble**: 66-70%
-- **LogLoss**: ~0.6181
-- **Brier score**: ~0.2138
-- **ECE** (calibration error): ~0.049
-- **Enhanced (Elo+XGB)**: ~64.21% acc, 0.6191 LL, 0.2153 Brier (calibrated)
+| Metric | Value |
+|--------|-------|
+| **Games tested** | 570 |
+| **Accuracy** | 65.61% |
+| **Log Loss** | 0.6181 |
+| **Brier Score** | 0.2138 |
+| **ECE** (calibration error) | ~0.039 |
+| **BSS vs 50%** | ~0.145 |
 
-Football is more predictable than baseball (best teams win ~75-80% of games, worst teams win ~20-25%), so accuracy in the 66-70% range on moneyline picks represents solid performance. The NFL's smaller sample size (272 regular season games vs 2,430 in MLB) means confidence intervals are wider.
+Football is more predictable than baseball (best NFL teams win ~75-80% of games, worst teams win ~20-25%), so accuracy in the 65-70% range on moneyline picks represents solid performance. The NFL's smaller sample size (272 regular season games per year vs 2,430 in MLB) means confidence intervals are wider. A model consistently above 60% accuracy across multiple seasons demonstrates genuine predictive signal.
 
 ---
 
@@ -715,7 +740,7 @@ Simulates optimal position sizing over the backtest period. Reports final bankro
 
 ## Daily Prediction Workflow
 
-Step-by-step workflow for making daily predictions:
+Step-by-step workflow for making daily predictions during the NFL season:
 
 ```
 1. LAUNCH
@@ -794,6 +819,10 @@ Open positions can be marked to current market prices at any time using `mark`. 
 
 When `autoresolve on` is active, the system automatically settles contracts when final game scores are detected during `live` tracking. You can also manually trigger `autoresolve` to batch-settle all finished games.
 
+### Kelly Criterion Position Sizing
+
+The `kelly` command simulates optimal position sizing over the backtest period. Fractional Kelly (default 50%) is used for practical sizing -- full Kelly is mathematically optimal but produces uncomfortable drawdowns. The Kelly recommendation shown during prediction flow tells you the optimal bet size based on edge and implied probability.
+
 ---
 
 ## File Structure
@@ -802,7 +831,7 @@ When `autoresolve on` is active, the system automatically settles contracts when
 NFLClaude/
 |
 |-- main.py                     # CLI entry point, command dispatch loop
-|-- config.py                   # Constants, 32 NFL teams, divisions, settings I/O
+|-- config.py                   # Constants, 32 NFL teams, 8 divisions, settings I/O
 |-- elo_model.py                # NFLElo class (ratings, predictions, 24 adjusters)
 |-- build_model.py              # Model training pipeline with season regression
 |
@@ -811,7 +840,7 @@ NFLClaude/
 |-- advanced_stats.py           # nfl_data_py: EPA, CPOE, success rate, referees
 |
 |-- backtest.py                 # All backtesting & optimization (~2100 lines)
-|-- enhanced_model.py           # XGBoost ensemble (31 features) + SHAP
+|-- enhanced_model.py           # XGBoost ensemble (31 features, 5-game window) + SHAP
 |-- single_param_opt.py         # Coordinate descent optimizer
 |
 |-- platt.py                    # Calibration (Platt, isotonic, beta, regression)
@@ -821,7 +850,7 @@ NFLClaude/
 |-- live_scores.py              # Live NFL scores + open trade display
 |-- auto_resolve.py             # Auto-settle finished trades from live scores
 |
-|-- injuries.py                 # ESPN injury report + Elo impact calculation
+|-- injuries.py                 # ESPN injury report + Elo impact (QB out = -50 Elo)
 |-- html_generator.py           # Blogger HTML prediction table generation
 |-- help_system.py              # Help text for all commands
 |-- color_helpers.py            # Colorama terminal formatting utilities
@@ -851,30 +880,39 @@ NFLClaude/
 |
 |-- odds_tracker.py             # The Odds API integration + CLV tracking
 |-- weather.py                  # Open-Meteo weather impact calculation
+|-- kalshi.py                   # Kalshi prediction market integration
 |
 |-- meta_learner.py             # Ridge/Logistic/XGBoost meta-learner stacker
 |-- mega_backtest.py            # Mega-ensemble walk-forward backtest engine
-|-- mega_optimizer.py           # 5-phase mega-ensemble optimization
-|-- mega_config.py              # Per-model on/off switches + mega params
+|-- mega_predictor.py           # MegaPredictor class (31-model runtime)
+|-- mega_optimizer.py           # 7-phase mega-ensemble optimization
+|-- mega_config.py              # Per-model on/off switches + mega params (54 hyperparams)
 |
+|-- run_optimize.py             # Batch optimization runner
+|-- quick_optimizer.py          # Quick optimization utilities
+|-- sweep_enhanced.py           # Enhanced model sweep runner
 |-- run_enhanced_all.py         # Batch enhanced model runner
 |-- accuracy_optimize.py        # Accuracy-focused optimization utilities
 |-- accuracy_test.py            # Quick walk-forward accuracy test
 |
 |-- requirements.txt            # Python dependencies
+|-- CLAUDE.md                   # Claude Code agent instructions
 |-- README.md                   # This file
 |
 |-- nfl_elo_settings.json       # [generated] Tuned Elo parameters
-|-- nfl_mega_settings.json      # [generated] Mega-ensemble settings
-|-- nfl_recent_games.csv        # [generated] 2 years of game history
+|-- nfl_mega_settings.json      # [generated] Mega-ensemble settings (model switches + hyperparams)
+|-- nfl_recent_games.csv        # [generated] 2 years of game history from ESPN
 |-- nfl_player_stats.csv        # [generated] Passing/rushing/receiving leaders
-|-- nfl_advanced_stats.csv      # [generated] EPA, CPOE, success rate
-|-- nfl_elo_ratings.json        # [generated] Saved Elo ratings
+|-- nfl_advanced_stats.csv      # [generated] EPA, CPOE, success rate from nflverse
+|-- nfl_elo_ratings.json        # [generated] Saved Elo ratings for all 32 teams
 |-- nfl_platt_scaler.json       # [generated] Platt calibration coefficients
 |-- nfl_enhanced_model.json     # [generated] XGBoost metadata
 |-- nfl_xgb_model.json          # [generated] XGBoost model weights
-|-- predicts_lots.csv           # [generated] Trading ledger
+|-- nfl_injuries.json           # [generated] Cached injury report (4-hour TTL)
+|-- predicts_lots.csv           # [generated] Trading ledger (positions, P&L)
 ```
+
+55 Python files total. All generated data files use the `nfl_` prefix and are gitignored.
 
 ---
 
@@ -884,7 +922,7 @@ NFLClaude/
 
 - **Python**: 3.9 or higher
 - **OS**: Windows, macOS, or Linux
-- **RAM**: 4 GB minimum, 8 GB recommended (mega-ensemble holds all models in memory)
+- **RAM**: 4 GB minimum, 8 GB recommended (mega-ensemble holds all 31 models in memory)
 - **Disk**: ~500 MB for cached data + model files
 - **Internet**: Required for API data downloads (can run offline with cached data)
 - **GPU**: Optional (CUDA-capable NVIDIA GPU for XGBoost/LightGBM/CatBoost/PyTorch acceleration)
@@ -952,23 +990,22 @@ pip install torch --index-url https://download.pytorch.org/whl/cpu
 
 ---
 
-## Disclaimer
-
-This software is for **educational and research purposes only**. It is not financial advice. Sports prediction models are inherently uncertain -- even the best models are wrong 30-35% of the time for NFL moneyline picks. No model can guarantee profits. Past backtest performance does not predict future results. Always gamble responsibly and never risk money you cannot afford to lose.
-
-The prediction probabilities produced by this system are statistical estimates, not certainties. The Predicts $1 contract ledger is a paper-trading simulation tool, not a connection to any real prediction market or sportsbook.
-
----
-
 ## Recent Changes
 
 - **Fixed `_rolling()` rest_days bug**: Away team was incorrectly using the home team's rest days in XGBoost features. Each team now correctly uses its own rest day calculation.
 - **Fixed broad exception handling in `backtest.py`**: Changed bare `except Exception` to `except OSError` so that programming errors are no longer silently swallowed.
 - **Added NaN guard for momentum autocorrelation in `enhanced_model.py`**: Prevents NaN values from propagating through the feature pipeline when autocorrelation cannot be computed.
 - **Made `season_regress` configurable via settings**: Was previously hardcoded to 0.33; now loaded from `nfl_elo_settings.json` like all other parameters.
-- **Optimized Elo parameters from bayesian optimization results**: K=35, home_adv=28, player_boost=30, rest_factor=6, form_weight=10, travel_factor=7, sos_factor=5, division_factor=30, pace_factor=7, mean_reversion=2.5, win_streak_factor=18, season_phase_factor=17, bye_week_factor=10, playoff_hca_factor=0.75, b2b_penalty=10, homestand_factor=17, altitude_factor=4.
+- **Optimized Elo parameters from bayesian optimization results**: K=28.36, home_adv=25.55, player_boost=24.61, rest_factor=0.68, form_weight=20.0, division_factor=31.33, win_streak_factor=20.0, homestand_factor=20.0, season_phase_factor=20.0, playoff_hca_factor=1.1, b2b_penalty=5.45, altitude_factor=0.66, rest_advantage_cap=3.32. Zeroed out: travel_factor, sos_factor, pace_factor, mean_reversion, road_trip_factor, scoring_consistency_factor, bye_week_factor.
 - **Enabled previously disabled adjusters**: Travel, pace, altitude, homestand, b2b, form, win streak, mean reversion, SOS, division, and season phase factors are now active with optimized values instead of defaulting to 0.
-- **Re-optimized all Elo parameters via genetic optimization**: Genetic (DE) winner at 65.61% acc, 0.6181 LL, 0.2138 Brier, 0.0487 ECE. Enhanced Elo+XGB: 64.21% acc, 0.6191 LL, 0.2153 Brier. Updated defaults: k=28.36, home_adv=25.55, player_boost=24.61, rest_factor=0.68, form_weight=20.0, division_factor=31.33, win_streak_factor=20.0, homestand_factor=20.0, season_phase_factor=20.0, playoff_hca_factor=1.1, b2b_penalty=5.45, altitude_factor=0.66, rest_advantage_cap=3.32. Zeroed out: travel_factor, sos_factor, pace_factor, mean_reversion, road_trip_factor, scoring_consistency_factor, bye_week_factor.
+
+---
+
+## Disclaimer
+
+This software is for **educational and research purposes only**. It is not financial advice. Sports prediction models are inherently uncertain -- even the best models are wrong 30-35% of the time for NFL moneyline picks. No model can guarantee profits. Past backtest performance does not predict future results. Always gamble responsibly and never risk money you cannot afford to lose.
+
+The prediction probabilities produced by this system are statistical estimates, not certainties. The Predicts $1 contract ledger is a paper-trading simulation tool, not a connection to any real prediction market or sportsbook.
 
 ---
 

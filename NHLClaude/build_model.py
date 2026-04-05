@@ -35,11 +35,12 @@ def _calc_altitude_bonus(csv_file=GAMES_FILE):
 
     Compares each team's home win rate to league average and converts the
     excess to Elo points.  Only teams whose home arena is >= 4000 ft
-    elevation get a bonus (Colorado Avalanche 5280 ft).
+    elevation get a bonus (Colorado Avalanche 5280 ft, Utah Hockey Club 4226 ft).
     """
     import math
     ALTITUDE_TEAMS = {
         "Colorado Avalanche": 5280,
+        "Utah Hockey Club": 4226,
     }
     if not os.path.exists(csv_file):
         return {}
@@ -196,8 +197,8 @@ def build_model(csv_file=GAMES_FILE):
                 try:
                     dt = pd.to_datetime(row["date"])
                     row_season = dt.year + 1 if dt.month >= 10 else dt.year
-                except Exception:
-                    pass
+                except Exception as e:
+                    logging.debug("Season date parse error: %s", e)
             if row_season and prev_season and row_season != prev_season:
                 logging.info("Season boundary %d->%d: regressing ratings to mean",
                              prev_season, row_season)
@@ -212,8 +213,8 @@ def build_model(csv_file=GAMES_FILE):
             if "date" in row and pd.notna(row["date"]):
                 try:
                     game_date = pd.to_datetime(row["date"])
-                except Exception:
-                    pass
+                except Exception as e:
+                    logging.debug("Game date parse error: %s", e)
             home_starter = str(row.get("home_starter", "") or "").strip()
             away_starter = str(row.get("away_starter", "") or "").strip()
             model.update_game(

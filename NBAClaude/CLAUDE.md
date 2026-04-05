@@ -19,7 +19,7 @@ First run auto-downloads game data (NBA API), player stats, and injury reports (
 
 **Two-stage prediction pipeline:**
 1. **Elo model** (`elo_model.py` → `NBAElo` class) — base team ratings adjusted for home court, altitude, player strength, rest days, travel fatigue, pace mismatch, injuries, and strength of schedule
-2. **XGBoost ensemble** (`enhanced_model.py`) — 80% Elo / 20% XGBoost using 31 rolling features per team (10-game window via `TeamTracker`, includes Pythagorean win expectation, streaks, consistency, and trend)
+2. **XGBoost ensemble** (`enhanced_model.py`) — 80% Elo / 20% XGBoost (default `elo_weight=0.8`) using 31 rolling features per team (10-game window via `TeamTracker`, includes Pythagorean win expectation, streaks, consistency, and trend)
 3. **Platt calibration** (`platt.py`) — logistic regression on raw probabilities for well-calibrated outputs
 
 **Data flow:**
@@ -58,7 +58,7 @@ Metrics reported: accuracy (%), log loss, Brier score. Calibration table bins pr
 
 ### XGBoost Enhanced Backtest (`enhanced` command)
 
-`run_enhanced_backtest()` in `enhanced_model.py` is a separate walk-forward loop that builds an 80/20 Elo+XGBoost ensemble:
+`run_enhanced_backtest()` in `enhanced_model.py` is a separate walk-forward loop that builds a 80/20 Elo+XGBoost ensemble:
 - First `min_train` games (default 200): Elo-only predictions while accumulating training features
 - After that: XGBoost is trained on accumulated features and retrained every `retrain_every` games (default 50)
 - `TeamTracker` maintains rolling 10-game windows (PPG, PAPG, win%, margins, rest days) per team

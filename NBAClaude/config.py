@@ -80,6 +80,7 @@ def is_cache_stale(filepath, max_age_hours=CACHE_MAX_AGE_HOURS, data_type="games
     if HAS_SMART_CACHE:
         return smart_cache_stale(filepath, "nba", data_type, max_age_hours=max_age_hours)
     # Fallback: simple age check
+    # Files under 500 bytes are empty/corrupt stubs (valid CSV needs headers + rows)
     if not os.path.exists(filepath) or os.path.getsize(filepath) < 500:
         return True
     age_hours = (datetime.now().timestamp() - os.path.getmtime(filepath)) / 3600
