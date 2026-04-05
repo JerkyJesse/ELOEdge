@@ -431,7 +431,7 @@ The `mega_predictor.py` module implements a 35-model mega-ensemble predictor. Ea
 - `mega settings` -- Show all mega parameter values
 - `mega set <param>=<value>` -- Set mega parameters (e.g., `mega set adj=0.10`, `mega set meta=ridge`, `mega set mc_sims=3000`)
 
-**Model tiers:** Tier 0 (Elo, XGBoost), Tier 1 (HMM, Kalman, PageRank, LightGBM, CatBoost, MLP, LSTM), Tier 2 (GARCH, Fourier, Survival, Copula), Tier 3 (InfoTheory, Momentum, Markov, Clustering, GameTheory), Tier 4 (Poisson, Glicko-2, Bradley-Terry, Monte Carlo, Random Forest), Tier 5 (SRS, Colley, Log5, Pythagorean, ExpSmoothing, MeanReversion), Tier 6 (Weather, Odds).
+**Model tiers:** Tier 0 (Elo, XGBoost), Tier 1 (HMM, Kalman, PageRank, LightGBM, CatBoost, MLP, LSTM), Tier 2 (GARCH, Fourier, Survival, Copula), Tier 3 (InfoTheory, Momentum, Markov, Clustering, GameTheory), Tier 4 (Poisson, Glicko-2, Bradley-Terry, Monte Carlo, Random Forest), Tier 5 (SRS, Colley, Log5, Pythagorean, ExpSmoothing, MeanReversion), Tier 6 (Weather, Odds), Tier 7 (SVM, Fibonacci, EVT, Benford).
 
 All 35 models run in parallel via `ThreadPoolExecutor`. Settings stored in `nfl_mega_settings.json`.
 

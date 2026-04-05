@@ -68,7 +68,7 @@ python -c "import nba_api; import xgboost; import lightgbm; print('All good')"
 
 ---
 
-## The 31 Models
+## The 35 Models
 
 Every model produces an independent win probability for each game. The meta-learner stacks them into one final prediction.
 
@@ -138,6 +138,15 @@ Every model produces an independent win probability for each game. The meta-lear
 | 30 | **Weather** | -- | Environmental | Temperature, humidity, wind impact. Limited applicability for NBA (all 30 teams play in indoor arenas) but included for completeness and consistency with multi-sport framework. Free via Open-Meteo |
 | 31 | **Odds** | -- | Market consensus | Ingests live betting lines from The Odds API (off by default). Tracks CLV (Closing Line Value). Market odds represent the wisdom of crowds -- a powerful independent signal for NBA |
 
+### Tier 7 -- Novel / Experimental
+
+| # | Model | Year | Method | NBA-Specific Description |
+|---|-------|------|--------|--------------------------|
+| 32 | **SVM** | 2026 | Support Vector Machine | RBF kernel with Platt scaling, maximum-margin classifier |
+| 33 | **Fibonacci** | 2026 | Fibonacci Retracement | EMA-smoothed performance swings with support/resistance levels |
+| 34 | **EVT** | 2026 | Extreme Value Theory | Generalized Pareto distribution for tail risk analysis |
+| 35 | **Benford** | 2026 | Benford's Law | Chi-squared scoring pattern anomaly detection |
+
 ---
 
 ## Architecture
@@ -185,7 +194,7 @@ Every model produces an independent win probability for each game. The meta-lear
              |    +------+------+------+------+    |
              +--->| p_elo| p_hmm|p_kalm| ...  |<--+
                   +------+------+------+------+
-                  |    31 probability columns   |
+                  |    35 probability columns   |
                   +-------------+---------------+
                                 |
                                 v
@@ -975,6 +984,10 @@ NBA/
 |-- survival_model.py          Cox proportional hazards (streak analysis)
 |-- copula_model.py            Copula joint dependency modeling
 |-- classic_models.py          SRS, Colley, Log5, PythagenPat, ExpSmoothing, MeanReversion
+|-- svm_model.py               SVM classifier (RBF kernel + Platt scaling)
+|-- fibonacci_model.py         Fibonacci retracement analysis
+|-- evt_model.py               Extreme Value Theory tail risk
+|-- benford_model.py           Benford's Law anomaly detection
 |
 |-- odds_tracker.py            The Odds API integration + CLV tracking
 |-- weather.py                 Open-Meteo weather data (limited use for indoor NBA)

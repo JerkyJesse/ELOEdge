@@ -1,8 +1,8 @@
-# NFL Moneyball -- 31-Model Mega-Ensemble
+# NFL Moneyball -- 35-Model Mega-Ensemble
 
-A production-grade NFL game prediction system that fuses 31 independent models -- spanning Elo ratings, gradient boosting, Hidden Markov Models, Kalman filters, PageRank, neural networks, survival analysis, information theory, game theory, and classical football analytics -- into a single calibrated probability through a walk-forward meta-learner. Every model trains on real NFL data pulled from completely free APIs (ESPN public API, nfl_data_py/nflverse play-by-play, ESPN injuries, Open-Meteo weather). The system includes a full Predicts $1 binary contract trading ledger with Kelly criterion position sizing, live score tracking, auto-settlement, and monthly P&L charting. All 17-game-season parameters are tuned through a 7-phase exhaustive optimizer with multithreaded backtesting and optional GPU acceleration.
+A production-grade NFL game prediction system that fuses 35 independent models -- spanning Elo ratings, gradient boosting, Hidden Markov Models, Kalman filters, PageRank, neural networks, survival analysis, information theory, game theory, and classical football analytics -- into a single calibrated probability through a walk-forward meta-learner. Every model trains on real NFL data pulled from completely free APIs (ESPN public API, nfl_data_py/nflverse play-by-play, ESPN injuries, Open-Meteo weather). The system includes a full Predicts $1 binary contract trading ledger with Kelly criterion position sizing, live score tracking, auto-settlement, and monthly P&L charting. All 17-game-season parameters are tuned through a 7-phase exhaustive optimizer with multithreaded backtesting and optional GPU acceleration.
 
-**32 NFL teams** | **35 models** | **74+ tunable parameters** (20 Elo + 54 per-model) | **7-phase per-model optimizer** | **No paid APIs**
+**32 NFL teams** | **35 models** | **90+ tunable parameters** (20 Elo + 58 per-model) | **7-phase per-model optimizer** | **No paid APIs**
 
 ---
 
@@ -10,7 +10,8 @@ A production-grade NFL game prediction system that fuses 31 independent models -
 
 ```bash
 # 1. Clone and enter directory
-cd NFL
+git clone https://github.com/JerkyJesse/SharpStack-NFL.git
+cd SharpStack-NFL
 
 # 2. Install dependencies
 pip install -r requirements.txt
@@ -39,7 +40,7 @@ On startup, the system downloads and caches all required data, builds the Elo mo
 
 ---
 
-## The 31 Models
+## The 35 Models
 
 Every model runs independently on the same game-by-game walk-forward loop. Their raw outputs feed into the meta-learner, which produces a single calibrated adjustment bounded by `max_adj`.
 
@@ -109,6 +110,15 @@ Every model runs independently on the same game-by-game walk-forward loop. Their
 | 30 | **Weather** | -- | Environmental impact | Temperature, wind speed, humidity, precipitation probability. Open-Meteo API (free, no key). Adjusts predictions for extreme weather -- critical for outdoor NFL stadiums in winter. Off by default. |
 | 31 | **Odds** | -- | Market consensus | Ingests moneyline odds from The Odds API. Closing Line Value (CLV) tracking. Markets are efficient -- odds provide a strong independent signal. Off by default (requires free API key). |
 
+### Tier 7 -- Novel / Experimental
+
+| # | Model | Year | Method | Description |
+|---|-------|------|--------|-------------|
+| 32 | **SVM** | 2026 | Support Vector Machine | RBF kernel with Platt scaling, maximum-margin classifier |
+| 33 | **Fibonacci** | 2026 | Fibonacci Retracement | EMA-smoothed performance swings with support/resistance levels |
+| 34 | **EVT** | 2026 | Extreme Value Theory | Generalized Pareto distribution for tail risk analysis |
+| 35 | **Benford** | 2026 | Benford's Law | Chi-squared scoring pattern anomaly detection |
+
 ---
 
 ## Architecture
@@ -143,7 +153,7 @@ Every model runs independently on the same game-by-game walk-forward loop. Their
                    | Elo probability (anchor)
                    |
   +=====================================+
-  |    31 BASE MODEL PREDICTIONS        |
+  |    35 BASE MODEL PREDICTIONS        |
   |                                     |
   |  [Tier 0] Elo, XGBoost             |
   |  [Tier 1] HMM, Kalman, PageRank,   |
@@ -165,7 +175,7 @@ Every model runs independently on the same game-by-game walk-forward loop. Their
   |  ThreadPoolExecutor                 |
   +=====================================+
                    |
-                   | Vector of 31 probabilities
+                   | Vector of 35 probabilities
                    v
   +=====================================+
   |       META-LEARNER (Stacker)        |
@@ -206,11 +216,11 @@ Every model runs independently on the same game-by-game walk-forward loop. Their
 
 ### Elo-Anchored Bounded Adjustment
 
-The Elo model serves as the anchor probability. The meta-learner (trained on all 31 base model outputs) produces an adjustment that is **clamped** to `+/- max_adj` (default 0.10). This means even if all exotic models disagree with Elo, the final probability can shift at most 10 percentage points. This design prevents catastrophic predictions from untested models while allowing proven signal to improve accuracy.
+The Elo model serves as the anchor probability. The meta-learner (trained on all 35 base model outputs) produces an adjustment that is **clamped** to `+/- max_adj` (default 0.10). This means even if all exotic models disagree with Elo, the final probability can shift at most 10 percentage points. This design prevents catastrophic predictions from untested models while allowing proven signal to improve accuracy.
 
 ### Multithreaded Training
 
-All 31 base models run inside a `ThreadPoolExecutor`. On a typical 8-core machine, the mega-ensemble backtest completes 3-5x faster than sequential execution. Each model receives the same game-by-game data and produces an independent probability estimate.
+All 35 base models run inside a `ThreadPoolExecutor`. On a typical 8-core machine, the mega-ensemble backtest completes 3-5x faster than sequential execution. Each model receives the same game-by-game data and produces an independent probability estimate.
 
 ### GPU Acceleration
 
@@ -620,7 +630,7 @@ NFC West:  Arizona Cardinals, Los Angeles Rams, San Francisco 49ers, Seattle Sea
 
 ### Multithreading
 
-The mega-ensemble uses `concurrent.futures.ThreadPoolExecutor` to run all 31 base models in parallel. On typical hardware:
+The mega-ensemble uses `concurrent.futures.ThreadPoolExecutor` to run all 35 base models in parallel. On typical hardware:
 
 - **4-core machine**: ~2-3x speedup over sequential
 - **8-core machine**: ~3-5x speedup over sequential
@@ -877,6 +887,10 @@ NFL/
 |-- monte_carlo_model.py        # Monte Carlo simulation (3000 sims)
 |-- random_forest_model.py      # Random Forest (bagging diversity)
 |-- classic_models.py           # SRS, Colley, Log5, Pythagorean, ExpSmooth, MeanReversion
+|-- svm_model.py                # SVM classifier (RBF kernel + Platt scaling)
+|-- fibonacci_model.py          # Fibonacci retracement analysis
+|-- evt_model.py                # Extreme Value Theory tail risk
+|-- benford_model.py            # Benford's Law anomaly detection
 |
 |-- odds_tracker.py             # The Odds API integration + CLV tracking
 |-- weather.py                  # Open-Meteo weather impact calculation

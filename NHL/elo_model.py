@@ -94,7 +94,7 @@ class NHLElo:
         self._platt_scaler = load_platt_scaler()
         self._xgb_model = None
         self._xgb_meta  = None
-        self._mega_predictor = None  # MegaPredictor (31-model ensemble)
+        self._mega_predictor = None  # MegaPredictor (35-model ensemble)
         self.metadata = {
             "season_label": get_season_label(), "trained_games": 0,
             "saved_at": None, "source_file": None, "settings": self.settings_dict(),

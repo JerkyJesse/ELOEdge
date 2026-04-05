@@ -63,6 +63,10 @@ First run auto-downloads game data (ESPN API), player stats, and injury reports 
 - `bradley_terry_model.py` -- Bradley-Terry paired comparisons
 - `monte_carlo_model.py` -- Monte Carlo simulation
 - `classic_models.py` -- SRS, Colley, Log5, Pythagorean, ExpSmoothing, MeanReversion
+- `svm_model.py` -- SVM classifier (RBF kernel + Platt scaling)
+- `fibonacci_model.py` -- Fibonacci retracement (EMA-smoothed support/resistance levels)
+- `evt_model.py` -- Extreme Value Theory (Generalized Pareto tail risk)
+- `benford_model.py` -- Benford's Law (chi-squared scoring anomaly detection)
 
 **Infrastructure:**
 - `color_helpers.py` -- colored output wrappers (cok, cerr, cwarn, chi, cdim, cbold)
@@ -381,7 +385,7 @@ Enter a team name to start a prediction. Core commands:
 
 ## Mega-Ensemble
 
-The `mega_predictor.py` module implements a 35-model mega-ensemble predictor. Each model runs independently on the same walk-forward game loop, producing a raw probability. A meta-learner (Ridge, Logistic, or XGBoost) combines all 31 outputs into a single calibrated adjustment that is clamped to +/- `max_adj` (default 0.10) around the Elo anchor probability.
+The `mega_predictor.py` module implements a 35-model mega-ensemble predictor. Each model runs independently on the same walk-forward game loop, producing a raw probability. A meta-learner (Ridge, Logistic, or XGBoost) combines all 35 outputs into a single calibrated adjustment that is clamped to +/- `max_adj` (default 0.10) around the Elo anchor probability.
 
 **Key commands:**
 - `mega` -- Run full mega-ensemble backtest with all enabled models
@@ -394,7 +398,7 @@ The `mega_predictor.py` module implements a 35-model mega-ensemble predictor. Ea
 - `mega settings` -- Show all mega parameter values
 - `mega set <param>=<value>` -- Set mega parameters (e.g., `mega set adj=0.10`)
 
-**Model tiers:** Tier 0 (Elo, XGBoost), Tier 1 (HMM, Kalman, PageRank, LightGBM, CatBoost, MLP, LSTM), Tier 2 (GARCH, Fourier, Survival, Copula), Tier 3 (InfoTheory, Momentum, Markov, Clustering, GameTheory), Tier 4 (Poisson, Glicko-2, Bradley-Terry, Monte Carlo, Random Forest), Tier 5 (SRS, Colley, Log5, Pythagorean, ExpSmoothing, MeanReversion), Tier 6 (Weather, Odds).
+**Model tiers:** Tier 0 (Elo, XGBoost), Tier 1 (HMM, Kalman, PageRank, LightGBM, CatBoost, MLP, LSTM), Tier 2 (GARCH, Fourier, Survival, Copula), Tier 3 (InfoTheory, Momentum, Markov, Clustering, GameTheory), Tier 4 (Poisson, Glicko-2, Bradley-Terry, Monte Carlo, Random Forest), Tier 5 (SRS, Colley, Log5, Pythagorean, ExpSmoothing, MeanReversion), Tier 6 (Weather, Odds), Tier 7 (SVM, Fibonacci, EVT, Benford).
 
 All 35 models run in parallel via `ThreadPoolExecutor`. Settings stored in `nhl_mega_settings.json`.
 
