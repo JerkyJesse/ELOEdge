@@ -344,22 +344,25 @@ The NHL system's most distinctive feature is its per-goalie cumulative Elo sub-r
 
 | Parameter | Default | Notes |
 |-----------|---------|-------|
-| K-factor | 5.0 | Low K for 82-game season (gradual rating changes) |
-| Home advantage | 26.0 | ~52% NHL home win rate |
-| Player boost | 10.0 | Impact of player quality differential |
-| Starter boost | 5.0 | Known starting goalie advantage |
-| Rest factor | 12.0 | Rest days impact |
+| K-factor | 5.16 | Low K for 82-game season (gradual rating changes) |
+| Home advantage | 41.43 | ~56% NHL home win rate (optimized higher than expected) |
+| Player boost | 36.36 | Impact of player quality differential (significant) |
+| Starter boost | 41.87 | Known starting goalie advantage (very impactful in NHL) |
+| Rest factor | 39.03 | Rest days impact (major factor for travel-heavy schedule) |
 | B2B penalty | 18.0 | Back-to-back game penalty (significant in hockey) |
-| Travel factor | 8.0 | Cross-country travel fatigue |
-| SOS factor | 10.0 | Strength of schedule adjustment |
-| Pace factor | 10.0 | Pace mismatch adjustment |
-| Division factor | 5.0 | Divisional rivalry familiarity |
+| Travel factor | 16.79 | Cross-country travel fatigue |
+| SOS factor | 32.41 | Strength of schedule adjustment (strong signal) |
+| Pace factor | 7.36 | Pace mismatch adjustment |
+| Division factor | 29.25 | Divisional rivalry familiarity (strong in NHL) |
+| Mean reversion | 37.79 | Regression after extreme results |
 | Overtime factor | 5.0 | OT game outcome adjustment |
 | Road trip factor | 2.5 | Extended road trip penalty |
 | Homestand factor | 3.0 | Extended homestand bonus |
 | Win streak factor | 2.0 | Hot/cold streak adjustment |
 | Season phase factor | 2.5 | Early/mid/late season adjustment |
 | Altitude factor | 4.0 | Multiplier for altitude bonus (Colorado, Utah) |
+| Playoff HCA factor | 0.94 | Slightly reduced playoff home advantage |
+| Form weight | 7.71 | Recent form (last 10 games) weight |
 | Season regression | 33% | Pull ratings toward mean at season boundaries |
 
 ## CLI Commands
@@ -380,7 +383,7 @@ Enter a team name to start a prediction. Core commands:
 
 **Trading**: `predicts`, `resolve`, `sell`, `mark`, `live`, `chart`, `invert`, `autoresolve`
 
-**Settings**: `set k=8.0`, `set home=25`, `set boost=20`, `set rest=15`, `set travel=20`, `set sos=10`, `set pace=20`, `set playoff=0.6`, `set form=0`
+**Settings**: `set k=5.16`, `set home=41`, `set boost=36`, `set rest=39`, `set travel=17`, `set sos=32`, `set pace=7`, `set playoff=0.94`, `set form=8`
 
 `help` for overview, `help <command>` for details, `help advanced` for all validation commands, `quit` to exit.
 

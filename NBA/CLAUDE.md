@@ -177,17 +177,21 @@ First run auto-downloads game data (NBA API), player stats, and injury reports (
 ## Key NBA-Specific Design Choices
 
 ### Elo Parameters (defaults from `config.load_elo_settings`)
-- **K-factor = 8.23**: Moderate K for 82-game season
-- **Home advantage = 34.0 Elo**: Reflects ~60% NBA home win rate
-- **player_boost = 24.61**: Team player strength boost from composite scoring
-- **rest_factor = 12.23**: Rest days impact (significant in NBA back-to-backs)
-- **b2b_penalty = 75.0**: Back-to-back game fatigue penalty (high in NBA)
-- **travel_factor = 10.0**: Cross-country travel fatigue
-- **sos_factor = 10.0**: Strength of schedule adjustment
-- **pace_factor = 19.0**: Pace mismatch adjustment
-- **division_factor = 5.0**: Divisional rivalry familiarity
-- **altitude_factor = 12.48**: Denver Nuggets altitude bonus (5280 ft)
-- **playoff_hca_factor = 0.7**: Reduced home advantage in playoffs
+- **K-factor = 8.53**: Optimized K for 82-game season (balances responsiveness with stability)
+- **Home advantage = 31.99 Elo**: Optimized NBA home court advantage (~58% implied home win rate)
+- **player_boost = 48.0**: Team player strength boost from composite scoring (high -- NBA is star-driven)
+- **rest_factor = 18.21**: Rest days impact (significant in NBA back-to-backs)
+- **b2b_penalty = 0.0**: Back-to-back penalty (captured by rest_factor instead)
+- **travel_factor = 12.20**: Cross-country travel fatigue
+- **sos_factor = 2.0**: Strength of schedule adjustment
+- **pace_factor = 26.53**: Pace mismatch adjustment (significant for tempo mismatches)
+- **form_weight = 5.06**: Recent form (last 10 games) adjustment
+- **division_factor = 10.0**: Divisional rivalry familiarity
+- **altitude_factor = 0.04**: Denver Nuggets altitude bonus (near-zero -- optimizer found minimal impact)
+- **playoff_hca_factor = 0.71**: Reduced home advantage in playoffs (~29% reduction)
+- **road_trip_factor = 5.0**: Extended road trip penalty
+- **homestand_factor = 15.0**: Extended homestand bonus
+- **rest_advantage_cap = 2.47**: Maximum rest differential impact
 - **season_regress = 0.33**: 33% pull toward mean at season boundaries
 
 ### Mega-Ensemble NBA Defaults (from `mega_backtest.SPORT_DEFAULTS`)
@@ -407,7 +411,7 @@ After running the full workflow, use these thresholds to decide next steps:
 8. **Train ensemble**: run `enhanced` (SHAP auto-runs), then `enhanced decay` to compare
 9. **Calibration**: run `rollingcal` for OOS calibration, `betacal` for asymmetry, `conformal` for coverage
 10. **P&L simulation**: run `kelly` to connect model quality to bankroll trajectory
-11. **Iterate**: adjust individual params with `set k=13.3`, `set home=39.3`, etc. — always rerun `backtest` after to refit the Platt scaler
+11. **Iterate**: adjust individual params with `set k=8.53`, `set home=32`, etc. — always rerun `backtest` after to refit the Platt scaler
 
 See "Complete Model Validation Workflow" above for detailed guidance on interpreting each step's output and what to do when metrics fall short.
 
@@ -461,9 +465,9 @@ Enter a team name to start a prediction. Core commands:
 **Trading**: `predicts`, `balance`, `resolve`, `sell`, `mark`, `invert`, `chart`, `live`, `autoresolve`, `autoresolve on/off`
 
 **Elo Settings** (39 params, type `set` to see all):
-- `set k=8`, `set home=34`, `set boost=24`, `set rest=12`, `set b2b=75`
-- `set travel=10`, `set pace=19`, `set sos=10`, `set div=5`
-- `set altitude=12`, `set playoff=0.7`
+- `set k=8.53`, `set home=32`, `set boost=48`, `set rest=18`, `set b2b=0`
+- `set travel=12`, `set pace=27`, `set sos=2`, `set div=10`
+- `set altitude=0.04`, `set playoff=0.71`
 - `set kelly=quarter`, `set balance=1000`, `set autoresolve=true`
 
 `help` for overview, `help <command>` for details, `help advanced` for all validation commands, `quit` to exit.

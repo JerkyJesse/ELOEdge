@@ -254,26 +254,26 @@ PyTorch-based models (MLP, LSTM) automatically detect and use CUDA GPUs when ava
 
 Every parameter in this system was chosen for basketball-specific reasons.
 
-### K-Factor = 8.23
+### K-Factor = 8.53
 
 The NBA regular season has 82 games per team (1,230 total). A moderate K-factor balances stability with responsiveness in such a long season. Compare:
-- NFL K ~ 20 (only 17 games, each one matters enormously)
+- NFL K ~ 17 (only 17 games, each one matters enormously)
 - MLB K ~ 1.0 (162 games, very low K keeps ratings stable)
-- NBA K ~ 8.23 (82 games, balanced between NFL and MLB)
+- NBA K ~ 8.53 (82 games, balanced between NFL and MLB)
 
-K = 8.23 was found via genetic optimization (differential evolution) over multiple seasons. Higher K causes ratings to whipsaw after upsets; lower K makes them too sluggish to capture mid-season improvement from trades and lineup changes.
+K = 8.53 was found via optimization (differential evolution) over multiple seasons. Higher K causes ratings to whipsaw after upsets; lower K makes them too sluggish to capture mid-season improvement from trades and lineup changes.
 
-### Home Court Advantage = 34.0 Elo Points (~58% Home Win Rate)
+### Home Court Advantage = 31.99 Elo Points (~55% Home Win Rate)
 
-NBA home court advantage translates to roughly 3 points on the spread and approximately 58% home team win rate in recent seasons (trending down from the historical ~60%). The 34.0 Elo point value maps to this through the Elo expected score formula:
+NBA home court advantage translates to roughly 3 points on the spread and approximately 58% home team win rate in recent seasons (trending down from the historical ~60%). The 31.99 Elo point value maps to this through the Elo expected score formula:
 
 ```
-E = 1 / (1 + 10^(-34.0/400)) = ~0.549
+E = 1 / (1 + 10^(-31.99/400)) = ~0.546
 ```
 
 Combined with other home-related factors (rest, travel, altitude), the effective home win rate reaches the observed ~58%.
 
-### Pace Factor = 35.0
+### Pace Factor = 26.53
 
 Unique to basketball among the four sports. The pace factor models scoring tempo mismatch:
 - Estimated pace = (points_for + points_against) / 2 per game
@@ -320,7 +320,7 @@ The exponent of 14 comes from Daryl Morey's basketball-specific research (later 
 
 ### Playoff Home Court Advantage Reduction
 
-The `playoff_hca_factor` (default 0.57) multiplies the regular-season home court advantage during playoff games. Playoff home advantage is reduced because:
+The `playoff_hca_factor` (default 0.71) multiplies the regular-season home court advantage during playoff games. Playoff home advantage is reduced because:
 - Teams prepare more extensively for specific opponents in a 7-game series
 - Travel fatigue is reduced (same two cities)
 - Better teams disproportionately have home court, compressing the effective advantage
@@ -362,7 +362,7 @@ EASTERN CONFERENCE              WESTERN CONFERENCE
 
 The `division_factor` parameter reduces prediction confidence for division matchups where teams are highly familiar with each other's tendencies (4 games per year against division rivals), making outcomes harder to predict.
 
-### Travel Factor = 28.2
+### Travel Factor = 12.20
 
 NBA travel spans the full continental US and Toronto. The system tracks timezone crossings between consecutive games and applies an Elo penalty per timezone crossed:
 
@@ -370,7 +370,7 @@ NBA travel spans the full continental US and Toronto. The system tracks timezone
 travel_adj = -travel_factor * abs(prev_timezone - curr_timezone)
 ```
 
-A team flying from Portland (UTC-8) to Miami (UTC-5) crosses 3 timezones, receiving a penalty of -84.6 Elo points. This captures the documented effect of circadian disruption on NBA performance, especially for West-to-East travel.
+A team flying from Portland (UTC-8) to Miami (UTC-5) crosses 3 timezones, receiving a penalty of -36.6 Elo points. This captures the documented effect of circadian disruption on NBA performance, especially for West-to-East travel.
 
 ---
 
@@ -465,16 +465,16 @@ A team flying from Portland (UTC-8) to Miami (UTC-5) crosses 3 timezones, receiv
 
 | Command | Description | Time |
 |---------|-------------|------|
-| `set k=8.23` | Set Elo K-factor | instant |
-| `set home=34` | Set home court advantage | instant |
-| `set boost=35` | Set player strength boost | instant |
-| `set rest=25` | Set rest days factor | instant |
-| `set b2b=18` | Set back-to-back penalty | instant |
-| `set travel=28.2` | Set travel fatigue factor | instant |
-| `set pace=35` | Set pace mismatch factor | instant |
-| `set sos=5` | Set strength of schedule weight | instant |
+| `set k=8.53` | Set Elo K-factor | instant |
+| `set home=32` | Set home court advantage | instant |
+| `set boost=48` | Set player strength boost | instant |
+| `set rest=18` | Set rest days factor | instant |
+| `set b2b=0` | Set back-to-back penalty | instant |
+| `set travel=12` | Set travel fatigue factor | instant |
+| `set pace=27` | Set pace mismatch factor | instant |
+| `set sos=2` | Set strength of schedule weight | instant |
 | `set streak=5` | Set win/loss streak momentum | instant |
-| `set playoff=0.57` | Set playoff home court advantage multiplier | instant |
+| `set playoff=0.71` | Set playoff home court advantage multiplier | instant |
 | `set kelly=quarter` | Set Kelly fraction (quarter/half/full/0.25/0.50) | instant |
 | `set balance=1000` | Set starting account balance | instant |
 | `set autoresolve=true` | Toggle auto-resolve | instant |
@@ -501,39 +501,39 @@ Parameters are set with `set <param>=<value>` or `set <alias>=<value>`. After an
 
 | Parameter | Aliases | Type | Default | Range | Description |
 |-----------|---------|------|---------|-------|-------------|
-| `k` | `k_factor` | float | 8.23 | 1-30 | Elo K-factor (learning rate per game). Lower = more stable, higher = more reactive. 82-game NBA season needs moderate K |
+| `k` | `k_factor` | float | 8.53 | 1-30 | Elo K-factor (learning rate per game). Lower = more stable, higher = more reactive. 82-game NBA season needs moderate K |
 | `base_rating` | `base`, `rating` | float | 1500.0 | 1000-2000 | Starting Elo rating for all 30 teams |
-| `home_adv` | `home`, `hca`, `home_advantage` | float | 34.0 | 0-100 | Home court advantage in Elo points. 34.0 maps to ~55% home win rate before other factors |
+| `home_adv` | `home`, `hca`, `home_advantage` | float | 31.99 | 0-100 | Home court advantage in Elo points. 31.99 maps to ~55% home win rate before other factors |
 | `use_mov` | `mov`, `margin` | bool | true | true/false | Use margin of victory adjustment (log-scaled). Critical for NBA where blowouts are common |
 
 #### Player Strength
 
 | Parameter | Aliases | Type | Default | Range | Description |
 |-----------|---------|------|---------|-------|-------------|
-| `player_boost` | `boost`, `player` | float | 35.0 | 0-100 | Team-level composite player strength. Computed from PTS + REB + AST + defensive metrics for all rostered players. No pitcher/starter distinction -- NBA is a full-team game |
+| `player_boost` | `boost`, `player` | float | 48.0 | 0-100 | Team-level composite player strength. Computed from PTS + REB + AST + defensive metrics for all rostered players. No pitcher/starter distinction -- NBA is a full-team game |
 
 #### Rest & Schedule
 
 | Parameter | Aliases | Type | Default | Range | Description |
 |-----------|---------|------|---------|-------|-------------|
-| `rest_factor` | `rest` | float | 25.0 | 0-80 | Rest days advantage factor. B2B = -rest_factor, normal = 0, extra rest = +bonus |
-| `rest_advantage_cap` | `restcap`, `rest_cap` | float | 2.97 | 0-10 | Maximum rest days counted. Prevents 5-day rest from being worth 5x a 1-day rest |
+| `rest_factor` | `rest` | float | 18.21 | 0-80 | Rest days advantage factor. B2B = -rest_factor, normal = 0, extra rest = +bonus |
+| `rest_advantage_cap` | `restcap`, `rest_cap` | float | 2.47 | 0-10 | Maximum rest days counted. Prevents 5-day rest from being worth 5x a 1-day rest |
 | `b2b_penalty` | `b2b`, `back_to_back` | float | 0.0 | 0-50 | Additional back-to-back penalty beyond rest_factor. Critical for NBA's compressed schedule |
-| `road_trip_factor` | `roadtrip`, `road_trip` | float | 3.47 | 0-30 | Extended road trip penalty (3+ consecutive away games). NBA road trips can span 4-5 games |
-| `homestand_factor` | `homestand` | float | 0.0 | 0-30 | Extended homestand bonus (3+ consecutive home games) |
+| `road_trip_factor` | `roadtrip`, `road_trip` | float | 5.0 | 0-30 | Extended road trip penalty (3+ consecutive away games). NBA road trips can span 4-5 games |
+| `homestand_factor` | `homestand` | float | 15.0 | 0-30 | Extended homestand bonus (3+ consecutive home games) |
 
 #### Travel & Venue
 
 | Parameter | Aliases | Type | Default | Range | Description |
 |-----------|---------|------|---------|-------|-------------|
-| `travel_factor` | `travel` | float | 28.2 | 0-80 | Elo penalty per timezone crossed. East-West travel across the US (up to 3 zones) is significant |
-| `altitude_factor` | `altitude`, `alt` | float | 0.0 | 0-50 | Altitude bonus multiplier for Denver (5,280 ft) and Utah (4,226 ft) home games |
+| `travel_factor` | `travel` | float | 12.20 | 0-80 | Elo penalty per timezone crossed. East-West travel across the US (up to 3 zones) is significant |
+| `altitude_factor` | `altitude`, `alt` | float | 0.04 | 0-50 | Altitude bonus multiplier for Denver (5,280 ft) and Utah (4,226 ft) home games |
 
 #### Form & Momentum
 
 | Parameter | Aliases | Type | Default | Range | Description |
 |-----------|---------|------|---------|-------|-------------|
-| `form_weight` | `form` | float | 10.0 | 0-50 | Recent form weight based on last 10 games win%. Hot/cold streaks matter in the NBA |
+| `form_weight` | `form` | float | 5.06 | 0-50 | Recent form weight based on last 10 games win%. Hot/cold streaks matter in the NBA |
 | `win_streak_factor` | `streak`, `win_streak` | float | 0.0 | 0-20 | Win/loss streak momentum factor |
 | `mean_reversion` | `reversion`, `regress` | float | 0.0 | 0-20 | Mean reversion after extreme results (blowout correction) |
 | `season_regress` | `season_regression`, `regress_pct` | float | 0.33 | 0-1.0 | Season boundary regression fraction. 0.33 = pull ratings 33% toward league mean between seasons |
@@ -542,21 +542,21 @@ Parameters are set with `set <param>=<value>` or `set <alias>=<value>`. After an
 
 | Parameter | Aliases | Type | Default | Range | Description |
 |-----------|---------|------|---------|-------|-------------|
-| `sos_factor` | `sos`, `strength_of_schedule` | float | 0.0 | 0-20 | Strength of schedule weight. Teams facing tougher opponents get battle-tested bonus |
+| `sos_factor` | `sos`, `strength_of_schedule` | float | 2.0 | 0-20 | Strength of schedule weight. Teams facing tougher opponents get battle-tested bonus |
 | `division_factor` | `division`, `div` | float | 10.0 | 0-30 | Divisional game confidence reducer. Division rivals play 4 times/year, increasing unpredictability |
 
 #### Scoring & Pace
 
 | Parameter | Aliases | Type | Default | Range | Description |
 |-----------|---------|------|---------|-------|-------------|
-| `pace_factor` | `pace`, `tempo` | float | 35.0 | 0-80 | Pace mismatch adjustment. Slower team gets bonus when facing a faster team (controls tempo). NBA-unique feature |
+| `pace_factor` | `pace`, `tempo` | float | 26.53 | 0-80 | Pace mismatch adjustment. Slower team gets bonus when facing a faster team (controls tempo). NBA-unique feature |
 | `scoring_consistency_factor` | `consistency`, `scoring_consistency` | float | 0.0 | 0-20 | Penalty for volatile scoring teams (high game-to-game point variance) |
 
 #### Season & Playoffs
 
 | Parameter | Aliases | Type | Default | Range | Description |
 |-----------|---------|------|---------|-------|-------------|
-| `playoff_hca_factor` | `playoff`, `playoff_hca`, `postseason` | float | 0.57 | 0-1.0 | Playoff home court advantage multiplier. 0.57 = home court is 57% of regular-season value in the playoffs |
+| `playoff_hca_factor` | `playoff`, `playoff_hca`, `postseason` | float | 0.71 | 0-1.0 | Playoff home court advantage multiplier. 0.71 = home court is 71% of regular-season value in the playoffs |
 | `season_phase_factor` | `phase`, `season_phase` | float | 0.0 | 0-10 | Early-season dampener. Reduces prediction confidence when Elo ratings are still immature (first 20 games) |
 
 #### Account & Trading
@@ -1075,7 +1075,7 @@ pip install torch --index-url https://download.pytorch.org/whl/cu121
 ### Smoke Test Results
 
 ```
-Baseline accuracy:         68.74%  (best of all 4 sports)
+Baseline accuracy:         71.59%  (best of all 4 sports)
 Log Loss:                  0.5858
 Brier:                     0.2002
 Games tested:              1,158

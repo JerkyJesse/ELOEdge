@@ -20,6 +20,12 @@
 *_recent_2seasons.csv
 predicts_lots.csv
 *_grid_search.csv
+*_super_grid.csv
+*_super_fine_grid.csv
+*_bayesian_results.csv
+*_genetic_results.csv
+*_optimization_log.txt
+*_master_opt_summary.json
 
 # ── Model artifacts ──
 *_lgbm_model.txt
@@ -64,5 +70,5 @@ temp_*
 .claude/
 catboost_info/
 =*
-nfl_meta_xgb.json
+*_meta_xgb.json
 weather_cache.json

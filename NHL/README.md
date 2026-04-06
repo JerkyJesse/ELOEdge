@@ -50,7 +50,7 @@ Every model runs independently on the same game-by-game walk-forward loop. Their
 
 | # | Model | Year | Method | Description |
 |---|-------|------|--------|-------------|
-| 1 | **Elo** | 1960 | Paired comparison rating | 24+ adjusters: home ice advantage, MOV (log-compressed for hockey's low scoring), per-goalie cumulative Elo sub-ratings (K_GOALIE=6), rest days, back-to-back penalty, travel fatigue, altitude (Colorado 5280 ft, Utah 4226 ft), form, SOS, overtime detection, playoff detection. 32 teams, 82-game season, K=5.0 with logarithmic MOV. |
+| 1 | **Elo** | 1960 | Paired comparison rating | 24+ adjusters: home ice advantage, MOV (log-compressed for hockey's low scoring), per-goalie cumulative Elo sub-ratings (K_GOALIE=6), rest days, back-to-back penalty, travel fatigue, altitude (Colorado 5280 ft, Utah 4226 ft), form, SOS, overtime detection, playoff detection. 32 teams, 82-game season, K=5.16 with logarithmic MOV. |
 | 2 | **XGBoost** | 2016 | Gradient boosted trees | 96 rolling features per game (goals for/against, save percentage, plus/minus, Pythagorean win%, streaks, consistency, scoring trend, rest, travel, back-to-back flags, road trip length, SOS-adjusted win%). Walk-forward training with 80/20 Elo/XGBoost blend. SHAP feature importance built in. |
 
 ### Tier 1 -- Proven Models
@@ -240,13 +240,13 @@ Every parameter in this system was chosen with the specific structure of the Nat
 
 | Parameter | Default | Rationale |
 |-----------|---------|-----------|
-| **K-factor** | 5.0 | NHL plays 82 games per season -- fewer than MLB (162) but more than NFL (17). K=5.0 was found via bayesian optimizer to minimize calibration error. Moderate K balances responsiveness with stability, which works well for hockey's high game-to-game variance due to low scoring and goaltender influence. |
-| **Home ice advantage** | 26.0 Elo (~53.7%) | NHL home teams historically win about 54-55% of games. 26.0 Elo points in the standard Elo formula yields approximately 53.7% expected win rate. Home ice advantage comes from last change (line matching), familiar ice surface, and crowd energy. |
+| **K-factor** | 5.16 | NHL plays 82 games per season -- fewer than MLB (162) but more than NFL (17). K=5.16 was found via bayesian optimizer to minimize calibration error. Moderate K balances responsiveness with stability, which works well for hockey's high game-to-game variance due to low scoring and goaltender influence. |
+| **Home ice advantage** | 41.43 Elo (~55.9%) | NHL home teams historically win about 54-55% of games. 41.43 Elo points in the standard Elo formula yields approximately 55.9% expected win rate. Home ice advantage comes from last change (line matching), familiar ice surface, and crowd energy. Optimizer found a higher value than expected, likely capturing additional venue-specific effects. |
 | **Player scoring weight** | 55% skaters / 45% goalies | Goaltending is disproportionately important in hockey -- a single goaltender can steal or lose a game. The 45% goalie weight reflects the reality that goaltending dominates low-scoring outcomes. Skater stats tracked: Points, Goals, Assists. Goalie stats tracked: GAA, Save Percentage, Wins, Shutouts. |
-| **Goaltender Elo tracking** | Per-goalie cumulative Elo (K_GOALIE=6) | NHL is unique among major sports: the starting goaltender identity has massive impact on game outcomes. The system tracks individual goalie Elo ratings that update after every start using `K_GOALIE * (outcome - 0.5) * log_mov`. Goalie ratings regress 50% toward zero at season boundaries. A starter_boost of 5.0 scales the goalie's cumulative rating into the team's Elo. Goalie injuries are the most impactful in all of sports -- star goaltender out = -35 Elo, starter out = -25 Elo, backup out = -15 Elo. Approximately 50% of a team's value resides in its goaltending. |
+| **Goaltender Elo tracking** | Per-goalie cumulative Elo (K_GOALIE=6) | NHL is unique among major sports: the starting goaltender identity has massive impact on game outcomes. The system tracks individual goalie Elo ratings that update after every start using `K_GOALIE * (outcome - 0.5) * log_mov`. Goalie ratings regress 50% toward zero at season boundaries. A starter_boost of 41.87 scales the goalie's cumulative rating into the team's Elo. Goalie injuries are the most impactful in all of sports -- star goaltender out = -35 Elo, starter out = -25 Elo, backup out = -15 Elo. Approximately 50% of a team's value resides in its goaltending. |
 | **Back-to-back penalty** | 18.0 Elo | Back-to-back games are common in the NHL schedule (3-4 per month per team). Fatigue from consecutive-day games is significant, especially for goaltenders who must maintain explosive reflexes. The 18-point penalty reflects reduced performance from consecutive-day games -- much higher than NFL's equivalent because B2Bs actually occur in hockey. |
-| **Rest factor** | 12.0 Elo | Higher than NFL due to the frequency of NHL games (3-4 per week). Rest advantage is computed as `rest_factor * (min(rest_days, cap) - 1)`. Extra rest beyond the cap (default 1.5 days, effectively rounded to 1) provides diminishing returns. |
-| **Travel factor** | 8.0 Elo per timezone | Active in NHL (unlike some sports where it is zeroed out). Computed as `-travel_factor * timezone_crossings` based on the team's last game location. A Pacific-to-Eastern cross-country trip (3 timezone difference) costs 24 Elo points. |
+| **Rest factor** | 39.03 Elo | Higher than NFL due to the frequency of NHL games (3-4 per week). Rest advantage is computed as `rest_factor * (min(rest_days, cap) - 1)`. Extra rest beyond the cap (default 1.5 days, effectively rounded to 1) provides diminishing returns. Optimizer found rest to be a major factor in the travel-heavy NHL schedule. |
+| **Travel factor** | 16.79 Elo per timezone | Active in NHL (unlike some sports where it is zeroed out). Computed as `-travel_factor * timezone_crossings` based on the team's last game location. A Pacific-to-Eastern cross-country trip (3 timezone difference) costs ~50 Elo points. |
 | **Overtime factor** | 5.0 | NHL-specific: all games have a winner (no ties since 2005). Games tied after regulation go to 5-minute 3-on-3 overtime, then a shootout if needed. Overtime/shootout results carry different informational value than regulation wins -- a team that frequently goes to OT may be evenly matched rather than dominant. |
 | **Altitude factor** | 4.0 | Two altitude teams: Colorado Avalanche (Ball Arena, 5,280 ft) and Utah Hockey Club (Delta Center, 4,226 ft -- relocated from Arizona in 2024). Altitude bonus is computed from excess home win rate, scaled by relative elevation above 4,000 ft. The thin air at altitude affects player fatigue and puck behavior. |
 | **MOV formula** | log(max(1.0, abs(goal_diff)) + 1.0) | Goal margins in hockey follow a logarithmic value curve -- a 1-goal game is much more informative than the difference between a 5-goal and 6-goal blowout. The log compression is essential for hockey's typically low-scoring games (average ~3 goals per team). |
@@ -256,7 +256,7 @@ Every parameter in this system was chosen with the specific structure of the Nat
 | **Season calendar** | October-June (cross-year) | Unlike MLB which runs within a single calendar year, the NHL season spans two calendar years. The system detects season boundaries using `year + 1 if month >= 10`, meaning October 2025 through June 2026 is the 2025-26 season. |
 | **No ties** | Always a winner | NHL games cannot end in a tie. If regulation ends tied, the game goes to overtime (5-minute 3-on-3) and then a shootout if needed. The final result is always a win or loss, simplifying the prediction to a pure binary outcome. |
 | **Blowout threshold** | 3+ goals | Mean reversion triggers after a 3+ goal margin (NHL-specific). A 3-goal game in hockey is a dominant performance; the model expects regression toward the mean after such results. |
-| **Playoff HCA factor** | 1.0 | Playoff games use full home ice advantage. NHL playoffs run mid-April through June. The system detects playoff games by date (April 15+ through June). |
+| **Playoff HCA factor** | 0.94 | Playoff games use slightly reduced home ice advantage. NHL playoffs run mid-April through June. The system detects playoff games by date (April 15+ through June). The 0.94 multiplier reflects that playoff home ice advantage is modestly lower than regular season. |
 | **Injury statuses** | Out, Day-to-Day, IR, LTIR | NHL injury designations tracked from ESPN: Out (not playing), Day-to-Day (questionable), IR (Injured Reserve, minimum 7 days), LTIR (Long-Term Injured Reserve, minimum 24 days). Goaltender injuries are weighted at approximately 50% of team value. |
 | **Divisions** | 4 divisions, 32 teams | Atlantic (8), Metropolitan (8), Central (8 -- includes Utah Hockey Club, relocated from Arizona in 2024), Pacific (8). Division factor reduces prediction confidence for divisional matchups where familiarity creates parity. |
 
@@ -376,17 +376,17 @@ Type `set <param>=<value>` or `set <alias>=<value>`. Example: `set k=8.0`, `set 
 
 | Parameter | Aliases | Type | Default | Description |
 |-----------|---------|------|---------|-------------|
-| `k` | `k_factor` | float | 5.0 | Elo K-factor (learning rate per game). Range 3-40 for NHL's 82-game season. |
+| `k` | `k_factor` | float | 5.16 | Elo K-factor (learning rate per game). Range 3-40 for NHL's 82-game season. |
 | `base_rating` | `base`, `rating` | float | 1500.0 | Starting Elo rating for all teams |
-| `home_adv` | `home`, `hca`, `home_advantage` | float | 26.0 | Home ice advantage in Elo points (~54% win rate) |
+| `home_adv` | `home`, `hca`, `home_advantage` | float | 41.43 | Home ice advantage in Elo points (~55.9% win rate) |
 | `use_mov` | `mov`, `margin` | bool | true | Use margin of victory adjustment (log-compressed for hockey) |
 
 #### Player / Goaltender
 
 | Parameter | Aliases | Type | Default | Description |
 |-----------|---------|------|---------|-------------|
-| `player_boost` | `boost`, `player` | float | 10.0 | Team-level player strength boost (55% skaters / 45% goalies) |
-| `starter_boost` | `starter`, `goalie_boost` | float | 5.0 | Starting goaltender quality boost (scales per-goalie Elo into team rating) |
+| `player_boost` | `boost`, `player` | float | 36.36 | Team-level player strength boost (55% skaters / 45% goalies) |
+| `starter_boost` | `starter`, `goalie_boost` | float | 41.87 | Starting goaltender quality boost (scales per-goalie Elo into team rating) |
 
 #### Margin of Victory
 
@@ -399,7 +399,7 @@ Type `set <param>=<value>` or `set <alias>=<value>`. Example: `set k=8.0`, `set 
 
 | Parameter | Aliases | Type | Default | Description |
 |-----------|---------|------|---------|-------------|
-| `rest_factor` | `rest` | float | 12.0 | Rest days advantage factor (higher than NFL due to frequent games) |
+| `rest_factor` | `rest` | float | 39.03 | Rest days advantage factor (higher than NFL due to frequent games) |
 | `rest_advantage_cap` | `restcap`, `rest_cap` | float | 1.5 | Maximum rest advantage multiplier |
 | `b2b_penalty` | `b2b`, `back_to_back` | float | 18.0 | Back-to-back game penalty (common in NHL, 3-4 per month) |
 | `road_trip_factor` | `roadtrip`, `road_trip` | float | 2.5 | Extended road trip penalty (3+ consecutive away games) |
@@ -409,7 +409,7 @@ Type `set <param>=<value>` or `set <alias>=<value>`. Example: `set k=8.0`, `set 
 
 | Parameter | Aliases | Type | Default | Description |
 |-----------|---------|------|---------|-------------|
-| `travel_factor` | `travel` | float | 8.0 | Elo penalty per timezone crossed (active in NHL) |
+| `travel_factor` | `travel` | float | 16.79 | Elo penalty per timezone crossed (active in NHL) |
 | `east_travel_penalty` | `east_travel`, `eastbound` | float | 0.0 | Extra penalty for eastbound travel |
 | `altitude_factor` | `altitude`, `alt` | float | 4.0 | Altitude bonus multiplier (Colorado 5280 ft, Utah 4226 ft) |
 
@@ -417,17 +417,17 @@ Type `set <param>=<value>` or `set <alias>=<value>`. Example: `set k=8.0`, `set 
 
 | Parameter | Aliases | Type | Default | Description |
 |-----------|---------|------|---------|-------------|
-| `form_weight` | `form` | float | 4.0 | Recent form weight (last 10 games win%) |
+| `form_weight` | `form` | float | 7.71 | Recent form weight (last 10 games win%) |
 | `win_streak_factor` | `streak`, `win_streak` | float | 2.0 | Win/loss streak momentum factor |
-| `mean_reversion` | `reversion`, `regress` | float | 2.5 | Mean reversion after extreme results (3+ goal blowouts) |
+| `mean_reversion` | `reversion`, `regress` | float | 37.79 | Mean reversion after extreme results (3+ goal blowouts) |
 | `season_regress` | `season_regression`, `regress_pct` | float | 0.33 | Season boundary regression fraction toward 1500 |
 
 #### Matchup Adjustments
 
 | Parameter | Aliases | Type | Default | Description |
 |-----------|---------|------|---------|-------------|
-| `sos_factor` | `sos`, `strength_of_schedule` | float | 10.0 | Strength of schedule weight (active in NHL) |
-| `division_factor` | `division`, `div` | float | 5.0 | Divisional game confidence reducer (4 divisions: Atlantic, Metro, Central, Pacific) |
+| `sos_factor` | `sos`, `strength_of_schedule` | float | 32.41 | Strength of schedule weight (active in NHL) |
+| `division_factor` | `division`, `div` | float | 29.25 | Divisional game confidence reducer (4 divisions: Atlantic, Metro, Central, Pacific) |
 | `series_adaptation` | `series`, `adaptation` | float | 0.0 | Series adaptation factor (rematches) |
 | `overtime_factor` | `overtime`, `ot` | float | 5.0 | Overtime/shootout result adjustment (NHL-specific, all games have a winner) |
 
@@ -435,7 +435,7 @@ Type `set <param>=<value>` or `set <alias>=<value>`. Example: `set k=8.0`, `set 
 
 | Parameter | Aliases | Type | Default | Description |
 |-----------|---------|------|---------|-------------|
-| `pace_factor` | `pace`, `tempo` | float | 10.0 | Goal environment mismatch adjustment (high-scoring vs low-scoring teams) |
+| `pace_factor` | `pace`, `tempo` | float | 7.36 | Goal environment mismatch adjustment (high-scoring vs low-scoring teams) |
 | `pyth_factor` | `pyth`, `pythagorean` | float | 0.0 | Pythagorean expected W% adjustment (exponent 2.05 for NHL) |
 | `scoring_consistency_factor` | `consistency`, `scoring_consistency` | float | 1.5 | Penalty for volatile goal scoring patterns |
 | `home_road_factor` | `home_road`, `split` | float | 0.0 | Team-specific home/road split bonus |
@@ -444,7 +444,7 @@ Type `set <param>=<value>` or `set <alias>=<value>`. Example: `set k=8.0`, `set 
 
 | Parameter | Aliases | Type | Default | Description |
 |-----------|---------|------|---------|-------------|
-| `playoff_hca_factor` | `playoff`, `playoff_hca`, `postseason` | float | 1.0 | Playoff home ice advantage multiplier (playoffs mid-April through June) |
+| `playoff_hca_factor` | `playoff`, `playoff_hca`, `postseason` | float | 0.94 | Playoff home ice advantage multiplier (playoffs mid-April through June) |
 | `season_phase_factor` | `phase`, `season_phase` | float | 2.5 | Early-season dampener |
 
 #### K-Factor Variants
@@ -621,7 +621,7 @@ Each goaltender in the league has a **cumulative Elo sub-rating** that tracks th
 1. **Initial rating**: All goalies start at 0.0 (neutral).
 2. **Update formula**: After each start, the goalie's rating updates by `K_GOALIE * (outcome - 0.5) * log_mov`, where K_GOALIE = 6, outcome is 1.0 (win) or 0.0 (loss), and log_mov is the log-compressed goal differential.
 3. **Season regression**: At each season boundary, all goalie ratings regress 50% toward zero (more aggressive than the 33% team regression, reflecting year-to-year goalie volatility).
-4. **Integration into team Elo**: The `starter_boost` parameter (default 5.0) scales the goalie's cumulative rating and adds it to the team's effective Elo: `team_elo += starter_boost * goalie_rating / 100.0`.
+4. **Integration into team Elo**: The `starter_boost` parameter (default 41.87) scales the goalie's cumulative rating and adds it to the team's effective Elo: `team_elo += starter_boost * goalie_rating / 100.0`.
 
 ### Goaltender Injury Impact
 
@@ -1106,7 +1106,8 @@ The prediction probabilities produced by this system are statistical estimates, 
 - **Fixed broad exception handling in `backtest.py`**: Changed bare `except Exception` to `except OSError` to avoid silently swallowing unexpected errors.
 - **Added NaN guard for momentum autocorrelation in `enhanced_model.py`**: Prevents NaN values from propagating through the feature pipeline when autocorrelation is undefined.
 - **Made `season_regress` configurable via settings**: The season regression fraction was previously hardcoded to 0.33; it can now be tuned via `set season_regress=<value>` like any other parameter.
-- **Optimized Elo parameters from bayesian optimization results**: Updated defaults based on bayesian optimization: K 3.01->5.0, home_adv 29.3->26.0, player_boost 15.43->10.0, starter_boost 4.89->5.0, rest_factor 0.0->12.0, form_weight 6.94->4.0, travel_factor 0.0->8.0, sos_factor 12.48->10.0, playoff_hca_factor 1.3->1.0, pace_factor 30.0->10.0, division_factor 0.0->5.0, mean_reversion 0.0->2.5, b2b_penalty 29.46->18.0, altitude_factor 0.237->4.0, overtime_factor 0.0->5.0.
+- **Re-optimized Elo parameters**: Updated defaults based on latest optimization: K 5.0->5.16, home_adv 26.0->41.43, player_boost 10.0->36.36, starter_boost 5.0->41.87, rest_factor 12.0->39.03, form_weight 4.0->7.71, travel_factor 8.0->16.79, sos_factor 10.0->32.41, playoff_hca_factor 1.0->0.94, pace_factor 10.0->7.36, division_factor 5.0->29.25, mean_reversion 2.5->37.79. Unchanged: b2b_penalty 18.0, road_trip_factor 2.5, homestand_factor 3.0, win_streak_factor 2.0, altitude_factor 4.0, season_phase_factor 2.5, overtime_factor 5.0.
+- **Previous optimization**: K 3.01->5.0, home_adv 29.3->26.0, player_boost 15.43->10.0, starter_boost 4.89->5.0, rest_factor 0.0->12.0, form_weight 6.94->4.0, travel_factor 0.0->8.0, sos_factor 12.48->10.0, playoff_hca_factor 1.3->1.0, pace_factor 30.0->10.0, division_factor 0.0->5.0, mean_reversion 0.0->2.5, b2b_penalty 29.46->18.0, altitude_factor 0.237->4.0, overtime_factor 0.0->5.0.
 - **Enabled previously disabled adjusters**: Rest, travel, division, mean_reversion, and overtime factors were previously set to 0.0 (disabled). Bayesian optimization found non-zero values that improve calibration, so these adjusters are now active by default.
 - **Fixed `rest_days` default from 1 to 2 in `elo_model.py`**: The `_get_rest_days()` method was defaulting to 1 day of rest when no prior game was found. Changed to 2 days, which better reflects NHL scheduling (teams typically play every other day).
 - **Added Utah Hockey Club to ALTITUDE_TEAMS**: Utah Hockey Club (formerly Arizona Coyotes, relocated 2024) plays in Salt Lake City at 4,226 ft. Altitude bonus is now scaled by relative elevation above 4,000 ft.

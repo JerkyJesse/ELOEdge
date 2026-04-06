@@ -67,13 +67,13 @@ First run auto-downloads game data (ESPN API), player stats, and injury reports 
 
 2. **Elo Model** (`elo_model.py`)
    - `NFLElo` class with 32 NFL teams
-   - Base rating 1500, configurable K-factor (default 28.36 for 17-game season)
-   - Home field advantage (default 25.55 Elo, ~53.6% implied home win rate)
+   - Base rating 1500, configurable K-factor (default 17.30 for 17-game season)
+   - Home field advantage (default 18.12 Elo, ~52.6% implied home win rate)
    - Margin of victory adjustment (logarithmic, `log(max(1, abs(margin)) + 1)`)
    - Player strength boost (team composite from passing/rushing/receiving leaders)
    - Rest days centered at 7 (NFL weekly schedule), bye week factor
    - B2B penalty for Thursday games after Sunday (short turnaround)
-   - Division rivalry factor (31.33 default)
+   - Division rivalry factor (30.85 default)
    - Altitude bonus for Denver Broncos only (5280 ft)
    - Travel fatigue via timezone-based distance
    - Season regression (33% pull toward mean at year boundary)
@@ -225,19 +225,25 @@ First run auto-downloads game data (ESPN API), player stats, and injury reports 
 ## Key NFL-Specific Design Choices
 
 ### Elo Parameters (defaults from `config.load_elo_settings`)
-- **K-factor = 28.36**: High K because 17-game season means each game carries significant signal
-- **Home advantage = 25.55 Elo**: Reflects ~53.6% NFL home win rate
-- **player_boost = 24.61**: Team player strength boost from composite scoring
-- **rest_factor = 0.68**: Rest days centered at 7 (NFL weekly schedule)
-- **b2b_penalty = 5.45**: Thursday Night Football penalty (short turnaround after Sunday)
+- **K-factor = 17.30**: Optimized K for 17-game season (lower than original 28.36 -- reduces overreaction to single results)
+- **Home advantage = 18.12 Elo**: Optimized NFL home advantage (~52.6% implied home win rate)
+- **player_boost = 26.52**: Team player strength boost from composite scoring
+- **rest_factor = 30.0**: Rest days impact (centered at 7 NFL weekly schedule) -- major factor
+- **b2b_penalty = 3.93**: Thursday Night Football penalty (short turnaround after Sunday)
 - **bye_week_factor = 0.0**: Bye week boost (currently disabled, tunable)
-- **division_factor = 31.33**: Divisional rivalry familiarity adjustment
-- **win_streak_factor = 20.0**: Hot/cold streak adjustment
-- **homestand_factor = 20.0**: Extended home-game stretch bonus
-- **season_phase_factor = 20.0**: Early/mid/late season adjustment
-- **altitude_factor = 0.66**: Denver Broncos altitude bonus multiplier
-- **playoff_hca_factor = 1.1**: Adjusted home advantage in playoffs
-- **rest_advantage_cap = 3.32**: Maximum rest differential impact
+- **division_factor = 30.85**: Divisional rivalry familiarity adjustment
+- **win_streak_factor = 32.0**: Hot/cold streak adjustment (significant in NFL)
+- **homestand_factor = 32.0**: Extended home-game stretch bonus
+- **season_phase_factor = 32.0**: Early/mid/late season adjustment
+- **altitude_factor = 0.67**: Denver Broncos altitude bonus multiplier
+- **playoff_hca_factor = 2.0**: Amplified home advantage in playoffs
+- **rest_advantage_cap = 7.0**: Maximum rest differential impact
+- **mean_reversion = 17.21**: Regression after extreme results
+- **travel_factor = 25.0**: Cross-country travel fatigue
+- **sos_factor = 20.0**: Strength of schedule adjustment
+- **scoring_consistency_factor = 5.0**: Goal variance penalty
+- **form_weight = 16.38**: Recent form (last N games) adjustment
+- **pace_factor = 4.0**: Pace mismatch adjustment
 - **season_regress = 0.33**: 33% pull toward mean at season boundaries
 - **MOV formula**: `log(max(1, abs(margin)) + 1)` -- logarithmic dampening for NFL blowouts
 
@@ -512,9 +518,9 @@ Enter a team name to start a prediction. Core commands:
 **Trading**: `predicts`, `balance`, `resolve`, `sell`, `mark`, `invert`, `chart`, `live`, `autoresolve`, `autoresolve on/off`
 
 **Elo Settings** (24 params, type `set` to see all):
-- `set k=28`, `set home=25`, `set boost=24`, `set rest=0.68`, `set b2b=5`
-- `set travel=0`, `set pace=0`, `set div=31`, `set streak=20`
-- `set altitude=0.66`, `set playoff=1.1`, `set phase=20`
+- `set k=17.3`, `set home=18`, `set boost=27`, `set rest=30`, `set b2b=4`
+- `set travel=25`, `set pace=4`, `set div=31`, `set streak=32`
+- `set altitude=0.67`, `set playoff=2.0`, `set phase=32`
 - `set kelly=quarter`, `set balance=50`, `set autoresolve=true`
 
 `help` for overview, `help <command>` for details, `help advanced` for all validation commands, `quit` to exit.
