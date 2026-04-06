@@ -19,7 +19,7 @@ First run auto-downloads game data (NBA API), player stats, and injury reports (
 
 **Three-stage prediction pipeline:**
 1. **Elo model** (`elo_model.py` → `NBAElo` class) -- base team ratings adjusted for home court, altitude, player strength, rest days, travel fatigue, pace mismatch, injuries, and strength of schedule
-2. **XGBoost ensemble** (`enhanced_model.py`) -- 80% Elo / 20% XGBoost (default `elo_weight=0.8`) using 31 rolling features per team (10-game window via `TeamTracker`, includes Pythagorean win expectation, streaks, consistency, and trend)
+2. **XGBoost ensemble** (`enhanced_model.py`) -- 80% Elo / 20% XGBoost (default `elo_weight=0.8`) using 102 rolling features per team (10-game window via `TeamTracker`, includes Pythagorean win expectation, streaks, consistency, and trend)
 3. **Mega-ensemble** (`mega_predictor.py` + `mega_backtest.py`) -- 35 base models stacked via a meta-learner (XGBoost, ridge, or logistic). Produces a bounded adjustment (+/- max_adj, default 0.08) on top of the Elo+XGBoost probability. Models span 7 tiers: Core (Elo, XGBoost), Proven (HMM, Kalman, PageRank, LightGBM, CatBoost, MLP, LSTM), Exotic (GARCH, Fourier/Wavelet, Survival, Copula), Info/Physics (Shannon Entropy, Momentum, Markov Chain, Clustering, Game Theory), Classical Ratings (Poisson, Glicko-2, Bradley-Terry, Monte Carlo, Random Forest), Sports-Specific (SRS, Colley Matrix, Log5, PythagenPat, Exponential Smoothing, Mean Reversion), Additional (SVM, Fibonacci, EVT, Benford), and Data Enrichment (Weather, Odds).
 4. **Platt calibration** (`platt.py`) -- logistic regression on raw probabilities for well-calibrated outputs
 
@@ -247,7 +247,7 @@ Metrics reported: accuracy (%), log loss, Brier score. Calibration table bins pr
 - First `min_train` games (default 200): Elo-only predictions while accumulating training features
 - After that: XGBoost is trained on accumulated features and retrained every `retrain_every` games (default 50)
 - `TeamTracker` maintains rolling 10-game windows (PPG, PAPG, win%, margins, rest days) per team
-- Feature vector has 31 columns (`FEATURE_COLS` in `enhanced_model.py`): elo_prob, elo_diff, player_diff, per-team rolling stats, differentials, rest, Pythagorean win expectation, streaks, consistency, and trend
+- Feature vector has 102 columns (`FEATURE_COLS` in `enhanced_model.py`): elo_prob, elo_diff, player_diff, per-team rolling stats, differentials, rest, Pythagorean win expectation, streaks, consistency, and trend
 - XGBoost params: `max_depth=5, eta=0.03, subsample=0.9, colsample_bytree=0.8, min_child_weight=3, 300 rounds`
 - After the walk-forward, fits both Platt and isotonic calibrators on ensemble probabilities
 - Saves the trained XGBoost booster to `nba_xgb_model.json` and metadata to `nba_enhanced_model.json`

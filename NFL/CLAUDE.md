@@ -19,7 +19,7 @@ First run auto-downloads game data (ESPN API), player stats, and injury reports 
 
 **Three-stage prediction pipeline:**
 1. **Elo model** (`elo_model.py` -> `NFLElo` class) -- base team ratings adjusted for home field, altitude (Denver only at 5280ft), player strength, rest days (centered at 7 days), travel fatigue, pace mismatch, injuries, division rivalry, and strength of schedule
-2. **XGBoost ensemble** (`enhanced_model.py`) -- 80% Elo / 20% XGBoost (default `elo_weight=0.8`) using 31 rolling features per team (5-game window via `TeamTracker`, includes Pythagorean win expectation, streaks, consistency, and trend)
+2. **XGBoost ensemble** (`enhanced_model.py`) -- 80% Elo / 20% XGBoost (default `elo_weight=0.8`) using 93 rolling features per team (5-game window via `TeamTracker`, includes Pythagorean win expectation, streaks, consistency, and trend)
 3. **Mega-ensemble** (`mega_predictor.py` + `mega_backtest.py`) -- 35 base models stacked via a meta-learner (XGBoost, ridge, or logistic). Produces a bounded adjustment (+/- max_adj, default 0.10) on top of the Elo+XGBoost probability. Models span 7 tiers: Core (Elo, XGBoost), Proven (HMM, Kalman, PageRank, LightGBM, CatBoost, MLP, LSTM), Exotic (GARCH, Fourier/Wavelet, Survival, Copula), Info/Physics (Shannon Entropy, Momentum, Markov Chain, Clustering, Game Theory), Classical Ratings (Poisson, Glicko-2, Bradley-Terry, Monte Carlo, Random Forest), Sports-Specific (SRS, Colley Matrix, Log5, Pythagorean, Exponential Smoothing, Mean Reversion), Additional (SVM, Fibonacci, EVT, Benford), and Data Enrichment (Weather, Odds).
 4. **Platt calibration** (`platt.py`) -- logistic regression on raw probabilities for well-calibrated outputs
 
@@ -80,7 +80,7 @@ First run auto-downloads game data (ESPN API), player stats, and injury reports 
    - Playoff HCA factor (1.1 default)
 
 3. **XGBoost Ensemble** (`enhanced_model.py`)
-   - 31 rolling features per game (TeamTracker class, includes Pythagorean, streaks, consistency, trend)
+   - 93 rolling features per game (TeamTracker class, includes Pythagorean, streaks, consistency, trend)
    - Walk-forward training (no leakage): Elo-only for first 200 games
    - Default blend: 80% Elo / 20% XGBoost
    - Optional time-decay: transitions from 95% Elo early to 70% Elo late
@@ -280,7 +280,7 @@ Metrics reported: accuracy (%), log loss, Brier score. Calibration table bins pr
 - First `min_train` games (default 200): Elo-only predictions while accumulating training features
 - After that: XGBoost is trained on accumulated features and retrained every `retrain_every` games (default 50)
 - `TeamTracker` maintains rolling 5-game windows (PPG, PAPG, win%, margins, rest days) per team
-- Feature vector has 31 columns (`FEATURE_COLS` in `enhanced_model.py`): elo_prob, elo_diff, player_diff, per-team rolling stats, differentials, rest, Pythagorean win expectation, streaks, consistency, and trend
+- Feature vector has 93 columns (`FEATURE_COLS` in `enhanced_model.py`): elo_prob, elo_diff, player_diff, per-team rolling stats, differentials, rest, Pythagorean win expectation, streaks, consistency, and trend
 - XGBoost params: `max_depth=5, eta=0.03, subsample=0.9, colsample_bytree=0.8, min_child_weight=3, 300 rounds`
 - After the walk-forward, fits both Platt and isotonic calibrators on ensemble probabilities
 - Saves the trained XGBoost booster to `nfl_xgb_model.json` and metadata to `nfl_enhanced_model.json`
