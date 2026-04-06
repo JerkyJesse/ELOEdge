@@ -4,7 +4,7 @@ A production-grade NHL game prediction system that fuses 35 independent models -
 
 The NHL system's most distinctive feature is its **per-goalie cumulative Elo sub-rating system**. Because a starting goaltender can single-handedly win or lose a hockey game, the system tracks individual goalie Elo ratings (K_GOALIE=6) with 50% season regression, and weights goaltender contributions at 45% of the overall player composite score. A star goaltender injury costs approximately 35 Elo points -- roughly 50% of a team's total value.
 
-**32 NHL teams** | **35 models** | **90+ tunable parameters** (21 Elo + 58 per-model) | **7-phase per-model optimizer** | **No paid APIs**
+**32 NHL teams** | **35 models** | **90+ tunable parameters** (22 Elo + 74 per-model) | **7-phase per-model optimizer** | **No paid APIs**
 
 ---
 
@@ -51,7 +51,7 @@ Every model runs independently on the same game-by-game walk-forward loop. Their
 | # | Model | Year | Method | Description |
 |---|-------|------|--------|-------------|
 | 1 | **Elo** | 1960 | Paired comparison rating | 24+ adjusters: home ice advantage, MOV (log-compressed for hockey's low scoring), per-goalie cumulative Elo sub-ratings (K_GOALIE=6), rest days, back-to-back penalty, travel fatigue, altitude (Colorado 5280 ft, Utah 4226 ft), form, SOS, overtime detection, playoff detection. 32 teams, 82-game season, K=5.0 with logarithmic MOV. |
-| 2 | **XGBoost** | 2016 | Gradient boosted trees | 80+ rolling features per game (goals for/against, save percentage, plus/minus, Pythagorean win%, streaks, consistency, scoring trend, rest, travel, back-to-back flags, road trip length, SOS-adjusted win%). Walk-forward training with 80/20 Elo/XGBoost blend. SHAP feature importance built in. |
+| 2 | **XGBoost** | 2016 | Gradient boosted trees | 96 rolling features per game (goals for/against, save percentage, plus/minus, Pythagorean win%, streaks, consistency, scoring trend, rest, travel, back-to-back flags, road trip length, SOS-adjusted win%). Walk-forward training with 80/20 Elo/XGBoost blend. SHAP feature importance built in. |
 
 ### Tier 1 -- Proven Models
 
@@ -258,7 +258,7 @@ Every parameter in this system was chosen with the specific structure of the Nat
 | **Blowout threshold** | 3+ goals | Mean reversion triggers after a 3+ goal margin (NHL-specific). A 3-goal game in hockey is a dominant performance; the model expects regression toward the mean after such results. |
 | **Playoff HCA factor** | 1.0 | Playoff games use full home ice advantage. NHL playoffs run mid-April through June. The system detects playoff games by date (April 15+ through June). |
 | **Injury statuses** | Out, Day-to-Day, IR, LTIR | NHL injury designations tracked from ESPN: Out (not playing), Day-to-Day (questionable), IR (Injured Reserve, minimum 7 days), LTIR (Long-Term Injured Reserve, minimum 24 days). Goaltender injuries are weighted at approximately 50% of team value. |
-| **Divisions** | 4 divisions, 32 teams | Atlantic (8), Metropolitan (8), Central (8), Pacific (9 -- includes the newly relocated Utah Hockey Club). Division factor reduces prediction confidence for divisional matchups where familiarity creates parity. |
+| **Divisions** | 4 divisions, 32 teams | Atlantic (8), Metropolitan (8), Central (8 -- includes Utah Hockey Club, relocated from Arizona in 2024), Pacific (8). Division factor reduces prediction confidence for divisional matchups where familiarity creates parity. |
 
 ---
 
@@ -284,7 +284,7 @@ Every parameter in this system was chosen with the specific structure of the Nat
 | Command | Description | Time |
 |---------|-------------|------|
 | `backtest` | Walk-forward backtest + fit Platt calibration scaler | ~15s |
-| `enhanced` | XGBoost ensemble backtest (80/20 Elo/XGB blend, 80+ features) | ~30s |
+| `enhanced` | XGBoost ensemble backtest (80/20 Elo/XGB blend, 96 features) | ~30s |
 | `enhanced decay` | Time-decayed ensemble (95% Elo early -> 70% Elo late season) | ~30s |
 | `shap` | SHAP feature importance analysis for XGBoost features | ~10s |
 | `sliding` | Sliding vs expanding window comparison | ~30s |
@@ -510,6 +510,28 @@ Set via `mega set <param>=<value>`. These are tuned automatically by `mega optim
 | **Markov** | n_states | 4 |
 | **Game Theory** | ema_alpha | 0.05 |
 | **Info Theory** | n_bins | 5 |
+
+---
+
+## Data Sources
+
+| Source | Data | Cost | Cache |
+|--------|------|------|-------|
+| ESPN API | Game scores, schedules | Free | 6 hours |
+| ESPN API | Player stats (skaters + goalies) | Free | 6 hours |
+| NHL API | Goalie boxscore data (for backfill) | Free | On demand |
+| ESPN API | Injury reports | Free | 4 hours |
+| Open-Meteo | Weather conditions | Free, no key | 2 hours |
+| The Odds API | Moneyline odds, CLV | Free tier (500 req/mo) | 1 hour |
+| Kalshi | Prediction market prices | Free public API | Real-time |
+
+### Smart Caching
+
+Cache staleness is season-aware via `cache_utils.py`:
+- **In-season** (October-June): Games/players refresh every 6 hours, injuries every 4 hours, weather every 2 hours
+- **Off-season**: All caches extend to 24+ hours
+- **Stale detection**: Files under 500 bytes treated as corrupt stubs
+- **Manual refresh**: `refresh` command deletes all caches and re-downloads
 
 ---
 
@@ -766,7 +788,7 @@ Purged CV adds an embargo gap between train and test folds to prevent Elo moment
 ### Phase 4: Ensemble & Features
 
 ```
-enhanced          # XGBoost ensemble (80+ features, 80/20 blend)
+enhanced          # XGBoost ensemble (96 features, 80/20 blend)
 shap              # Which features are driving XGBoost predictions?
 enhanced decay    # Time-decayed weighting (XGB gets more weight over season)
 ```
@@ -912,7 +934,7 @@ NHL/
 |-- backfill_goalies.py         # NHL-UNIQUE: backfill historical starting goalie data (NHL API)
 |
 |-- backtest.py                 # All backtesting & optimization (~2100 lines)
-|-- enhanced_model.py           # XGBoost ensemble (80+ features) + SHAP
+|-- enhanced_model.py           # XGBoost ensemble (96 features) + SHAP
 |-- single_param_opt.py         # Coordinate descent optimizer
 |
 |-- platt.py                    # Calibration (Platt, isotonic, beta, regression)

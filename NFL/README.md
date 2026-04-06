@@ -2,7 +2,7 @@
 
 A production-grade NFL game prediction system that fuses 35 independent models -- spanning Elo ratings, gradient boosting, Hidden Markov Models, Kalman filters, PageRank, neural networks, survival analysis, information theory, game theory, and classical football analytics -- into a single calibrated probability through a walk-forward meta-learner. Every model trains on real NFL data pulled from completely free APIs (ESPN public API, nfl_data_py/nflverse play-by-play, ESPN injuries, Open-Meteo weather). The system includes a full Predicts $1 binary contract trading ledger with Kelly criterion position sizing, live score tracking, auto-settlement, and monthly P&L charting. All 17-game-season parameters are tuned through a 7-phase exhaustive optimizer with multithreaded backtesting and optional GPU acceleration.
 
-**32 NFL teams** | **35 models** | **90+ tunable parameters** (20 Elo + 58 per-model) | **7-phase per-model optimizer** | **No paid APIs**
+**32 NFL teams** | **35 models** | **90+ tunable parameters** (21 Elo + 72 per-model) | **7-phase per-model optimizer** | **No paid APIs**
 
 ---
 
@@ -49,7 +49,7 @@ Every model runs independently on the same game-by-game walk-forward loop. Their
 | # | Model | Year | Method | Description |
 |---|-------|------|--------|-------------|
 | 1 | **Elo** | 1960 | Paired comparison rating | 24+ adjusters: home field advantage, MOV, rest/bye week, travel, altitude (Denver), form, SOS, divisional rivalry, conference, playoff detection. All 32 NFL teams tracked. K=28.36 tuned for the 17-game season with logarithmic MOV dampening. |
-| 2 | **XGBoost** | 2016 | Gradient boosted trees | 31 rolling features per game (win%, Pythagorean expectation, streaks, scoring consistency, trend, rest days, travel). Walk-forward training with 80/20 Elo/XGBoost blend. SHAP feature importance built in. |
+| 2 | **XGBoost** | 2016 | Gradient boosted trees | 93 rolling features per game (win%, Pythagorean expectation, streaks, scoring consistency, trend, rest days, travel). Walk-forward training with 80/20 Elo/XGBoost blend. SHAP feature importance built in. |
 
 ### Tier 1 -- Proven Models
 
@@ -279,7 +279,7 @@ Every parameter in this system was chosen with the specific structure of the Nat
 | Command | Description | Time |
 |---------|-------------|------|
 | `backtest` | Walk-forward backtest + fit Platt calibration scaler | ~10s |
-| `enhanced` | XGBoost ensemble backtest (80/20 Elo/XGB blend, 31 features) | ~20s |
+| `enhanced` | XGBoost ensemble backtest (80/20 Elo/XGB blend, 93 features) | ~20s |
 | `enhanced decay` | Time-decayed ensemble (95% Elo early -> 70% Elo late season) | ~20s |
 | `shap` | SHAP feature importance analysis for XGBoost features | ~10s |
 | `sliding` | Sliding vs expanding window comparison | ~20s |
@@ -547,19 +547,27 @@ superopt                                    # Steps 2-6 + validation (~2-4h)
 
 ---
 
+## Data Sources
+
+| Source | Data | Cost | Cache |
+|--------|------|------|-------|
+| ESPN API | Game scores, schedules | Free | 6 hours |
+| ESPN API | Player stats (passing, rushing, receiving) | Free | 6 hours |
+| nfl_data_py | EPA, CPOE, success rate (nflverse play-by-play) | Free | 6 hours |
+| ESPN API | Injury reports | Free | 4 hours |
+| Open-Meteo | Weather (outdoor stadiums) | Free, no key | 2 hours |
+| The Odds API | Moneyline odds, CLV | Free tier (500 req/mo) | 1 hour |
+| Kalshi | Prediction market prices | Free public API | Real-time |
+
+### Smart Caching
+
+Cache staleness is season-aware via `cache_utils.py`:
+- **In-season** (September-February): Games/players refresh every 6 hours, injuries every 4 hours, weather every 2 hours
+- **Off-season**: All caches extend to 24+ hours
+- **Stale detection**: Files under 500 bytes treated as corrupt stubs
+- **Manual refresh**: `refresh` command deletes all caches and re-downloads
+
 ## API Setup
-
-### Data Sources
-
-All data sources are **completely free**. No paid APIs.
-
-| Source | Package / URL | Data Provided | API Key? | Rate Limit |
-|--------|--------------|---------------|----------|------------|
-| **ESPN Public API** | `requests` (pip) | Game scores, schedules, rosters, live scores | None needed | Unlimited |
-| **nfl_data_py / nflverse** | `nfl_data_py` (pip) | EPA, CPOE, success rate, play-by-play, officials | None needed | Unlimited (pre-compiled CSVs from nflverse) |
-| **ESPN Injuries** | ESPN public API | Injury reports: IR, Doubtful, Questionable, Out | None needed | Unlimited |
-| **Open-Meteo Weather** | `open-meteo.com` REST API | Temperature, wind, humidity, precipitation | None needed | 10,000/day |
-| **The Odds API** | `the-odds-api.com` | Moneyline odds from major sportsbooks | Free key (500 req/month) | 500/month |
 
 ### The Odds API Setup (Optional)
 
@@ -704,7 +712,7 @@ Purged CV adds an embargo gap between train and test folds to prevent Elo moment
 ### Phase 4: Ensemble & Features
 
 ```
-enhanced          # XGBoost ensemble (31 features, 80/20 blend)
+enhanced          # XGBoost ensemble (93 features, 80/20 blend)
 shap              # Which features are driving XGBoost predictions?
 enhanced decay    # Time-decayed weighting (XGB gets more weight over season)
 ```
@@ -729,22 +737,19 @@ kelly             # Kelly criterion bankroll simulation on backtest
 
 Simulates optimal position sizing over the backtest period. Reports final bankroll, maximum drawdown, Sharpe ratio, and win rate. Uses fractional Kelly (default 50%) for practical sizing.
 
-### Decision Framework
+### Decision Framework After Validation
 
-| Metric | Good | Marginal | Bad |
-|--------|------|----------|-----|
-| **Accuracy** | > 66% | 63-66% | < 63% |
-| **ECE** (calibration error) | < 0.02 | 0.02-0.05 | > 0.05 |
-| **BSS** (Brier Skill Score vs 50%) | > 0.04 | 0.01-0.04 | < 0.01 |
-| **PBO** (Prob Backtest Overfit) | < 0.30 | 0.30-0.50 | > 0.50 |
-| **DSR** (Deflated Sharpe Ratio) | > 2.0 | 1.0-2.0 | < 1.0 |
-| **Monte Carlo p-value** | < 0.05 | 0.05-0.10 | > 0.10 |
-| **Purged CV std** | < 3% | 3-5% | > 5% |
-| **CPCV paths > 63%** | > 90% | 70-90% | < 70% |
-| **Kelly Sharpe** | > 1.0 | 0.5-1.0 | < 0.5 |
-| **Kelly max drawdown** | < 20% | 20-40% | > 40% |
-
-**Interpretation**: If most metrics are "Good", the model has genuine predictive power. If PBO is "Bad" or Monte Carlo p > 0.10, the model's apparent edge is likely noise. Do not trade a model with "Bad" validation metrics.
+| Metric | Good | Marginal | Bad | Action if bad |
+|--------|------|----------|-----|---------------|
+| Accuracy | >66% | 63-66% | <63% | Revisit Elo adjusters, check data quality |
+| ECE | <0.03 | 0.03-0.08 | >0.08 | Refit Platt, try beta calibration |
+| BSS vs 50% | >0.08 | 0.04-0.08 | <0.04 | Model has weak discriminative power |
+| PBO | <0.3 | 0.3-0.5 | >0.5 | Grid search overfit -- use wider ranges |
+| DSR | >1.96 | 1.0-1.96 | <1.0 | Best params are noise -- simplify model |
+| Monte Carlo p | <0.01 | 0.01-0.05 | >0.05 | No statistically significant skill |
+| Purged CV std | <2% | 2-3% | >3% | Model is fragile to training data selection |
+| Kelly Sharpe | >1.0 | 0.5-1.0 | <0.5 | Edge too thin for real trading |
+| Kelly max DD | <30% | 30-50% | >50% | Size down (use 10%-Kelly instead of 25%) |
 
 ---
 
@@ -850,7 +855,7 @@ NFL/
 |-- advanced_stats.py           # nfl_data_py: EPA, CPOE, success rate, referees
 |
 |-- backtest.py                 # All backtesting & optimization (~2100 lines)
-|-- enhanced_model.py           # XGBoost ensemble (31 features, 5-game window) + SHAP
+|-- enhanced_model.py           # XGBoost ensemble (93 features, 5-game window) + SHAP
 |-- single_param_opt.py         # Coordinate descent optimizer
 |
 |-- platt.py                    # Calibration (Platt, isotonic, beta, regression)

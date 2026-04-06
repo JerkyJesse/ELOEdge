@@ -2,7 +2,7 @@
 
 A production-grade NBA game prediction system combining a deeply-tuned Elo rating engine with 35 independent statistical, machine learning, and physics-inspired models. All 35 model outputs feed a meta-learner (Ridge/Logistic/XGBoost) that produces a single calibrated win probability for every game. Includes a full Predicts $1 contract trading ledger with mark-to-market, auto-resolve, Kelly criterion sizing, and P&L tracking.
 
-**30 NBA teams. 35 models. 90+ tunable parameters (24 Elo + 58 per-model). 68.74% accuracy on 1,158 games tested.**
+**30 NBA teams** | **35 models** | **100+ tunable parameters** (20 Elo + 82 per-model) | **7-phase per-model optimizer** | **No paid APIs**
 
 Every data source is **completely free** -- no paid APIs, no subscriptions, no keys required for core functionality. The system pulls game logs and player stats from the official NBA API (`nba_api`), injury reports from ESPN, weather from Open-Meteo, and optional betting odds from The Odds API (free tier, 500 requests/month).
 
@@ -77,7 +77,7 @@ Every model produces an independent win probability for each game. The meta-lear
 | # | Model | Year | Method | NBA-Specific Description |
 |---|-------|------|--------|--------------------------|
 | 1 | **Elo** | 1960 | Rating system | 24+ adjusters: home court, player strength (composite of PTS/REB/AST), rest days, travel fatigue (timezone crossings), pace mismatch, altitude (Denver/Utah), injuries, SOS, back-to-back penalty, playoff HCA reduction, division familiarity, scoring consistency, mean reversion, season phase |
-| 2 | **XGBoost** | 2016 | Gradient boosting | 31 rolling features per team (10-game window via TeamTracker): Elo prob, Elo diff, player diff, PPG, PAPG, win%, margins, rest days, Pythagorean expectation (exp=14), streaks, consistency, trend. 80% Elo / 20% XGBoost blend (default). Walk-forward retrained every 50 games |
+| 2 | **XGBoost** | 2016 | Gradient boosting | 102 rolling features per team (10-game window via TeamTracker): Elo prob, Elo diff, player diff, PPG, PAPG, win%, margins, rest days, Pythagorean expectation (exp=14), streaks, consistency, trend. 80% Elo / 20% XGBoost blend (default). Walk-forward retrained every 50 games |
 
 ### Tier 1 -- Proven Models
 
@@ -86,7 +86,7 @@ Every model produces an independent win probability for each game. The meta-lear
 | 3 | **HMM** | 1966 | Hidden Markov Model | Detects hot/cold team states from observable game outcomes. NBA teams swing between performance regimes mid-season due to injuries, trades, and lineup experiments. 2-4 hidden states capture these transitions |
 | 4 | **Kalman** | 1960 | Kalman Filter | Recursive Bayesian estimation of true team strength. Separates signal (real ability) from noise (high game-to-game variance in NBA scoring). Process noise and measurement noise are tunable |
 | 5 | **PageRank** | 1998 | Network analysis | Builds directed win graph across the 30-team NBA, applies PageRank + HITS authority scores. Captures transitive strength: beating teams that beat good teams matters. Temporal decay weights recent games more |
-| 6 | **LightGBM** | 2017 | Leaf-wise boosting | Microsoft's gradient boosting with leaf-wise tree growth. Uses same 31-feature set as XGBoost for ensemble diversity. Often more accurate on tabular NBA stat data |
+| 6 | **LightGBM** | 2017 | Leaf-wise boosting | Microsoft's gradient boosting with leaf-wise tree growth. Uses same 102-feature set as XGBoost for ensemble diversity. Often more accurate on tabular NBA stat data |
 | 7 | **CatBoost** | 2017 | Ordered boosting | Yandex's gradient boosting with ordered target statistics (reduces prediction shift). Third independent GBM vote alongside XGBoost and LightGBM |
 | 8 | **MLP** | 1986 | Neural network | Multi-layer perceptron with dropout and batch normalization. Captures non-linear feature interactions (e.g., rest x travel x altitude compounding) that tree models miss. PyTorch implementation |
 | 9 | **LSTM** | 1997 | Recurrent neural net | Long Short-Term Memory network for sequential game patterns. Models temporal dependencies across a team's 82-game season arc. Captures momentum shifts after trades and lineup changes |
@@ -164,7 +164,7 @@ Every model produces an independent win probability for each game. The meta-lear
     +--------------------------------------------------------+
     |              FEATURE ENGINEERING                        |
     |  TeamTracker: 10-game rolling window per team           |
-    |  31 features: PPG, PAPG, win%, margins, rest,          |
+    |  102 features: PPG, PAPG, win%, margins, rest,         |
     |  Pythagorean exp (exp=14), streaks, consistency, trend  |
     +----------------------------+---------------------------+
                                  |
@@ -398,7 +398,7 @@ A team flying from Portland (UTC-8) to Miami (UTC-5) crosses 3 timezones, receiv
 | Command | Description | Time |
 |---------|-------------|------|
 | `backtest` | Walk-forward backtest on full history. Fits Platt calibration scaler. Reports accuracy, log loss, Brier, ECE, MCE, BSS | 15-30s |
-| `enhanced` | XGBoost ensemble backtest (80/20 Elo/XGB blend, 31 features, walk-forward retrained). Auto-runs SHAP analysis | 30-60s |
+| `enhanced` | XGBoost ensemble backtest (80/20 Elo/XGB blend, 102 features, walk-forward retrained). Auto-runs SHAP analysis | 30-60s |
 | `enhanced decay` | Same as `enhanced` but with time-decayed weighting (95% Elo early season to 70% Elo late season) | 30-60s |
 | `shap` | Standalone SHAP feature importance analysis for the saved XGBoost model | 5-10s |
 
@@ -789,7 +789,7 @@ Phase 7: Apply best and save
 
 ---
 
-## 6-Phase Model Validation Workflow
+## Complete Model Validation Workflow
 
 A 6-phase process to thoroughly validate and tune the prediction model. Each phase builds on the previous one. Run phases in order.
 
@@ -948,7 +948,7 @@ NBA/
 |-- elo_model.py               NBAElo class: Elo ratings with 24+ adjusters
 |-- build_model.py             Constructs NBAElo from settings + game CSV, applies season regression
 |-- backtest.py                Walk-forward backtest, grid/genetic/bayesian optimizers, all validation tests
-|-- enhanced_model.py          XGBoost ensemble: TeamTracker (10-game window), 31 features, walk-forward
+|-- enhanced_model.py          XGBoost ensemble: TeamTracker (10-game window), 102 features, walk-forward
 |-- platt.py                   Platt scaling + isotonic regression + beta calibration
 |-- metrics.py                 ECE, MCE, BSS, log loss, Brier score, conformal prediction
 |-- single_param_opt.py        Coordinate descent optimizer (one param at a time)
@@ -1083,7 +1083,7 @@ Games tested:              1,158
 
 ---
 
-## Dependencies
+## Requirements
 
 ### System Requirements
 
@@ -1146,6 +1146,15 @@ pip install torch --index-url https://download.pytorch.org/whl/cpu
 # GPU PyTorch (CUDA 12.1)
 pip install torch --index-url https://download.pytorch.org/whl/cu121
 ```
+
+---
+
+## Recent Changes
+
+- **Feature expansion**: XGBoost enhanced model now uses 102 rolling features (expanded from original 31) including advanced occult features, matchup differentials, and trend indicators
+- **4 new models added**: SVM classifier, Fibonacci retracement, Extreme Value Theory, Benford's Law (Tier 7)
+- **Smart caching**: Season-aware cache management via `cache_utils.py` with sport-specific refresh rates
+- **Convergence warning suppression**: HMM and SVM convergence warnings silenced for cleaner output
 
 ---
 
