@@ -38,14 +38,13 @@ TEAM_ABBR = {
     "Toronto Maple Leafs": "TOR",   "Utah Hockey Club": "UTA",
     "Vancouver Canucks": "VAN",     "Vegas Golden Knights": "VGK",
     "Washington Capitals": "WSH",   "Winnipeg Jets": "WPG",
-    "Arizona Coyotes": "ARI",
 }
 
 NHL_DIVISIONS = {
     "Atlantic": ["Boston Bruins", "Buffalo Sabres", "Detroit Red Wings", "Florida Panthers", "Montreal Canadiens", "Ottawa Senators", "Tampa Bay Lightning", "Toronto Maple Leafs"],
     "Metropolitan": ["Carolina Hurricanes", "Columbus Blue Jackets", "New Jersey Devils", "New York Islanders", "New York Rangers", "Philadelphia Flyers", "Pittsburgh Penguins", "Washington Capitals"],
-    "Central": ["Arizona Coyotes", "Chicago Blackhawks", "Colorado Avalanche", "Dallas Stars", "Minnesota Wild", "Nashville Predators", "St. Louis Blues", "Winnipeg Jets"],
-    "Pacific": ["Anaheim Ducks", "Calgary Flames", "Edmonton Oilers", "Los Angeles Kings", "San Jose Sharks", "Seattle Kraken", "Utah Hockey Club", "Vancouver Canucks", "Vegas Golden Knights"],
+    "Central": ["Chicago Blackhawks", "Colorado Avalanche", "Dallas Stars", "Minnesota Wild", "Nashville Predators", "St. Louis Blues", "Utah Hockey Club", "Winnipeg Jets"],
+    "Pacific": ["Anaheim Ducks", "Calgary Flames", "Edmonton Oilers", "Los Angeles Kings", "San Jose Sharks", "Seattle Kraken", "Vancouver Canucks", "Vegas Golden Knights"],
 }
 
 
