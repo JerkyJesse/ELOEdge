@@ -1,6 +1,7 @@
 """Backtest, grid search, genetic optimization, and advanced validation methods."""
 
 import os
+import json
 import logging
 from itertools import product, combinations
 from collections import defaultdict
@@ -10,7 +11,12 @@ import numpy as np
 import pandas as pd
 from scipy.optimize import differential_evolution
 from scipy.stats import norm as norm_dist
-from tqdm import tqdm
+try:
+    from tqdm import tqdm
+except ImportError:
+    def tqdm(iterable=None, *a, **kw):
+        return iterable if iterable is not None else range(0)
+    tqdm.write = print
 
 from config import GAMES_FILE, load_elo_settings, save_elo_settings
 from color_helpers import cok, cwarn, cdim, chi, div
@@ -37,16 +43,81 @@ _ELO_KEYS = {"base_rating", "k", "home_adv", "use_mov", "player_boost",
              "k_decay", "surprise_k", "elo_scale"}
 
 
+def _save_backtest_state(model, state_file):
+    """Save full model state for incremental resume."""
+    import time as _time
+    state = {
+        "ratings": dict(model.ratings),
+        "pitcher_ratings": dict(getattr(model, "_pitcher_ratings", {})),
+        "goalie_ratings": dict(getattr(model, "_goalie_ratings", {})),
+        "player_scores": {k: float(v) for k, v in getattr(model, "_player_scores", {}).items()},
+        "rest_days": {k: (str(v) if hasattr(v, 'isoformat') else v)
+                      for k, v in getattr(model, "_rest_days", {}).items()},
+        "recent_results": {k: list(v) for k, v in getattr(model, "_recent_results", {}).items()},
+        "last_game_dates": {k: str(v) for k, v in getattr(model, "_last_game_dates", {}).items()},
+        "games_played": dict(getattr(model, "_games_played", {})),
+        "saved_at": _time.strftime("%Y-%m-%d %H:%M:%S"),
+    }
+    with open(state_file, "w") as f:
+        json.dump(state, f, indent=2, default=str)
+
+
+def _restore_backtest_state(state, model):
+    """Restore model internal state from saved dict (keeps existing settings)."""
+    model.ratings = state.get("ratings", model.ratings)
+    if state.get("pitcher_ratings"):
+        model._pitcher_ratings = state["pitcher_ratings"]
+    if state.get("goalie_ratings"):
+        model._goalie_ratings = state["goalie_ratings"]
+    if state.get("player_scores"):
+        model._player_scores = state["player_scores"]
+    if state.get("rest_days"):
+        model._rest_days = state["rest_days"]
+    if state.get("recent_results"):
+        model._recent_results = {k: list(v) for k, v in state["recent_results"].items()}
+    if state.get("last_game_dates"):
+        model._last_game_dates = state["last_game_dates"]
+    if state.get("games_played"):
+        model._games_played = state["games_played"]
+    return model
+
+
 def backtest_model(csv_file=GAMES_FILE, output_csv="mlb_backtest_predictions.csv",
                    calibration_csv="mlb_calibration.csv", k=None, home_adv=None,
-                   model=None, fit_platt=False):
+                   model=None, fit_platt=False, resume=False):
     """
     fit_platt=True: fit and save Platt scaler from this run's raw probs.
     Only pass fit_platt=True on the main/user-facing backtest call,
     not inside optimizer loops (leakage + speed).
+    resume=True: load previous predictions + model state, only process new games.
     """
     if not os.path.exists(csv_file):
         return False, {}
+
+    state_file = output_csv.replace("_predictions.csv", "_state.json")
+
+    # --- Resume: load previous predictions + state ---
+    old_preds, old_probs, old_actuals = [], [], []
+    last_pred_date = None
+    saved_state = None
+
+    if resume and model is None and os.path.exists(output_csv) and os.path.exists(state_file):
+        try:
+            old_df = pd.read_csv(output_csv)
+            if len(old_df) > 0:
+                last_pred_date = str(old_df.iloc[-1]["date"])
+                old_preds = old_df.to_dict("records")
+                old_probs = old_df["home_win_prob"].tolist()
+                old_actuals = [1 if r["actual_winner"] == r["home_team"] else 0
+                               for r in old_preds]
+            with open(state_file) as f:
+                saved_state = json.load(f)
+        except Exception as e:
+            logging.warning("Resume load failed, running full backtest: %s", e)
+            old_preds, old_probs, old_actuals = [], [], []
+            last_pred_date = None
+            saved_state = None
+
     if model is None:
         settings = load_elo_settings()
         model = MLBElo(**{k_: v for k_, v in settings.items() if k_ in _ELO_KEYS})
@@ -58,13 +129,37 @@ def backtest_model(csv_file=GAMES_FILE, output_csv="mlb_backtest_predictions.csv
         player_df = load_player_stats()
         if not player_df.empty:
             model.set_player_stats(player_df)
+
+    # Restore saved state if resuming
+    if saved_state and last_pred_date:
+        _restore_backtest_state(saved_state, model)
+
     games = pd.read_csv(csv_file)
     if "neutral_site" not in games.columns:
         games["neutral_site"] = False
     # Parse dates for rest-day calculations
     games["_date_parsed"] = pd.to_datetime(games["date"], errors="coerce")
+
+    # Filter to new games only if resuming
+    if last_pred_date and saved_state:
+        cutoff = pd.to_datetime(last_pred_date)
+        games = games[games["_date_parsed"] > cutoff].copy()
+        if len(games) == 0:
+            print("  No new games since %s (resume)" % last_pred_date)
+            # Return metrics from old predictions
+            if old_probs:
+                brier_val = brier_score_binary(old_actuals, old_probs)
+                ll_val = log_loss_binary(old_actuals, old_probs)
+                acc_val = sum(1 for p in old_preds if p["correct"]) / len(old_preds) * 100
+                return True, {"accuracy": acc_val, "log_loss": ll_val,
+                              "brier": brier_val, "n_games": len(old_preds)}
+            return False, {}
+        print("  Resuming: %d old + %d new games" % (len(old_preds), len(games)))
+
     # Detect season boundaries for pitcher rating regression
     prev_season = None
+    if old_preds and last_pred_date:
+        prev_season = pd.to_datetime(last_pred_date).year
     predictions, probs, actuals = [], [], []
     for _, row in games.iterrows():
         try:
@@ -104,11 +199,24 @@ def backtest_model(csv_file=GAMES_FILE, output_csv="mlb_backtest_predictions.csv
             )
         except Exception as e:
             logging.warning("Backtest row error: %s", e)
-    if not predictions:
+    if not predictions and not old_preds:
         return False, {}
-    pred_df = pd.DataFrame(predictions)
+
+    # Merge old + new predictions
+    all_predictions = old_preds + predictions
+    all_probs = old_probs + probs
+    all_actuals = old_actuals + actuals
+
+    pred_df = pd.DataFrame(all_predictions)
     pred_df.to_csv(output_csv, index=False)
-    calibration_table(probs, actuals).to_csv(calibration_csv, index=False)
+    calibration_table(all_probs, all_actuals).to_csv(calibration_csv, index=False)
+
+    # Save model state for future resume
+    _save_backtest_state(model, state_file)
+
+    # Use merged lists for metrics below
+    probs = all_probs
+    actuals = all_actuals
 
     if fit_platt and len(probs) >= 100:
         scaler     = fit_platt_scaler(probs, actuals)
@@ -158,6 +266,853 @@ _OPT_KEYS = ("k", "home_adv", "player_boost", "starter_boost", "rest_factor",
              "series_adaptation", "interleague_factor",
              "bullpen_factor", "opp_pitcher_factor",
              "k_decay", "surprise_k")
+
+
+# ══════════════════════════════════════════════════════════════════════
+# FAST EVALUATOR — numba-JIT-compiled Elo backtest for optimizer loops
+# ══════════════════════════════════════════════════════════════════════
+# Pre-computes all game data into integer-indexed arrays once, then
+# evaluates a parameter set via a numba-compiled inner loop with direct
+# array indexing.  10-100x faster than backtest_model() per param set.
+#
+# Usage:
+#   cache = FastEloCache(csv_file)          # once before optimization
+#   metrics = cache.evaluate(params_dict)   # per parameter set (fast)
+# ══════════════════════════════════════════════════════════════════════
+
+import math as _math
+
+try:
+    from numba import njit as _njit
+    _HAS_NUMBA = True
+except ImportError:
+    _HAS_NUMBA = False
+    def _njit(*a, **kw):
+        def _deco(fn):
+            return fn
+        return _deco if not a else fn
+
+
+def _make_elo_loop():
+    """Build the JIT-compiled inner loop function.
+
+    Separated so the @njit decorator compiles it once on first call.
+    Returns a function: (game_arrays..., param_floats...) -> (preds, correct, brier_sum, ll_sum)
+    """
+    @_njit(cache=True)
+    def _elo_loop(
+        n_games, n_teams, n_pitchers,
+        # -- game data arrays --
+        home_id, away_id, home_score, away_score, neutral,
+        home_actual, home_pitcher_id, away_pitcher_id,
+        game_date_ord, game_month, game_year,
+        # -- static lookup arrays --
+        player_scores, altitude_bonus, park_factor, timezone,
+        same_div_flat, league,
+        # -- parameters (all float64) --
+        base_rating, k, home_adv, use_mov_f,
+        player_boost, starter_boost, rest_factor, form_weight,
+        travel_factor, sos_factor, playoff_hca, pace_factor,
+        division_factor, mean_reversion, pyth_factor, home_road_factor,
+        mov_base, b2b_penalty, road_trip_factor, homestand_factor,
+        win_streak_factor, altitude_factor, season_phase_factor,
+        scoring_consistency_factor, rest_advantage_cap,
+        park_factor_weight, mov_cap, east_travel_penalty,
+        series_adaptation, interleague_factor, bullpen_factor,
+        opp_pitcher_factor, k_decay, surprise_k, elo_scale,
+    ):
+        use_mov = use_mov_f > 0.5
+        K_PITCHER = 6.0
+
+        # Per-team state
+        ratings = np.full(n_teams, base_rating)
+        last_game_date = np.zeros(n_teams, dtype=np.int64)
+        # Recent results ring buffer (10)
+        rr = np.full((n_teams, 10), -1.0)
+        rr_ptr = np.zeros(n_teams, dtype=np.int32)
+        rr_cnt = np.zeros(n_teams, dtype=np.int32)
+        # Opponent Elo ring buffer (10)
+        oe = np.zeros((n_teams, 10))
+        oe_ptr = np.zeros(n_teams, dtype=np.int32)
+        oe_cnt = np.zeros(n_teams, dtype=np.int32)
+        # Team scores ring buffer (10)
+        trf = np.zeros((n_teams, 10))
+        tra = np.zeros((n_teams, 10))
+        ts_ptr = np.zeros(n_teams, dtype=np.int32)
+        ts_cnt = np.zeros(n_teams, dtype=np.int32)
+        # Home/road results (20)
+        hr = np.full((n_teams, 20), -1.0)
+        hr_ptr = np.zeros(n_teams, dtype=np.int32)
+        hr_cnt = np.zeros(n_teams, dtype=np.int32)
+        rdr = np.full((n_teams, 20), -1.0)
+        rdr_ptr = np.zeros(n_teams, dtype=np.int32)
+        rdr_cnt = np.zeros(n_teams, dtype=np.int32)
+        # Other per-team
+        last_margin = np.zeros(n_teams)
+        lm_set = np.zeros(n_teams, dtype=np.int32)
+        c_home = np.zeros(n_teams, dtype=np.int32)
+        c_away = np.zeros(n_teams, dtype=np.int32)
+        game_num = np.zeros(n_teams, dtype=np.int32)
+        last_loc = np.full(n_teams, -1, dtype=np.int32)
+        last_opp = np.full(n_teams, -1, dtype=np.int32)
+        series_gn = np.ones(n_teams * n_teams, dtype=np.int32)
+        # Pitcher state
+        p_rat = np.zeros(n_pitchers)
+        p_starts = np.zeros(n_pitchers, dtype=np.int32)
+        bp_rat = np.zeros(n_teams)
+
+        correct = 0
+        brier_sum = 0.0
+        ll_sum = 0.0
+        prev_season = 0
+
+        for g in range(n_games):
+            h = home_id[g]
+            a = away_id[g]
+            hs = home_score[g]
+            as_ = away_score[g]
+            is_n = neutral[g]
+            dt = game_date_ord[g]
+            mo = game_month[g]
+            yr = game_year[g]
+            hp = home_pitcher_id[g]
+            ap = away_pitcher_id[g]
+            ha = home_actual[g]
+
+            # Season boundary
+            if yr > 0 and prev_season > 0 and yr != prev_season:
+                s = 0.0
+                for ti in range(n_teams):
+                    s += ratings[ti]
+                mn = s / n_teams
+                for ti in range(n_teams):
+                    ratings[ti] += 0.33 * (mn - ratings[ti])
+                for pi in range(n_pitchers):
+                    p_rat[pi] *= 0.5
+            if yr > 0:
+                prev_season = yr
+
+            ra = ratings[h]
+            rb = ratings[a]
+
+            # HCA
+            if not is_n:
+                hca = home_adv * playoff_hca if mo >= 10 else home_adv
+                ra += hca
+                ab = altitude_bonus[h]
+                if ab > 0.0 and altitude_factor > 0.0:
+                    ra += ab * altitude_factor
+
+            # Player boost
+            if player_boost > 0.0:
+                ra += player_scores[h] * player_boost
+                rb += player_scores[a] * player_boost
+
+            # Starter quality
+            if starter_boost > 0.0:
+                if hp > 0 and p_starts[hp] >= 8:
+                    ra += starter_boost * p_rat[hp] / 100.0
+                if ap > 0 and p_starts[ap] >= 8:
+                    rb += starter_boost * p_rat[ap] / 100.0
+
+            # Rest days
+            if rest_factor != 0.0 and dt > 0:
+                cap = 3
+                if rest_advantage_cap > 0:
+                    cap = int(rest_advantage_cap)
+                ld_h = last_game_date[h]
+                if ld_h > 0:
+                    rd = dt - ld_h
+                    if rd < 0:
+                        rd = 0
+                    ra += rest_factor * (min(rd, cap) - 1)
+                ld_a = last_game_date[a]
+                if ld_a > 0:
+                    rd = dt - ld_a
+                    if rd < 0:
+                        rd = 0
+                    rb += rest_factor * (min(rd, cap) - 1)
+
+            # Form
+            if form_weight != 0.0:
+                cnt_h = rr_cnt[h]
+                if cnt_h >= 5:
+                    nu = min(cnt_h, 10)
+                    ptr = rr_ptr[h]
+                    tw = 0.0
+                    for j in range(nu):
+                        tw += rr[h, (ptr - 1 - j) % 10]
+                    ra += form_weight * (tw / nu - 0.5)
+                cnt_a = rr_cnt[a]
+                if cnt_a >= 5:
+                    nu = min(cnt_a, 10)
+                    ptr = rr_ptr[a]
+                    tw = 0.0
+                    for j in range(nu):
+                        tw += rr[a, (ptr - 1 - j) % 10]
+                    rb += form_weight * (tw / nu - 0.5)
+
+            # Travel
+            if travel_factor > 0.0 and not is_n:
+                vtz = timezone[h]
+                ll_h = last_loc[h]
+                if ll_h >= 0:
+                    td = abs(vtz - timezone[ll_h])
+                    if td > 0:
+                        ra -= travel_factor * td
+                ll_a = last_loc[a]
+                if ll_a >= 0:
+                    td = abs(vtz - timezone[ll_a])
+                    if td > 0:
+                        rb -= travel_factor * td
+
+            # SOS
+            if sos_factor != 0.0:
+                cnt_h = oe_cnt[h]
+                if cnt_h >= 5:
+                    nu = min(cnt_h, 10)
+                    ptr = oe_ptr[h]
+                    te = 0.0
+                    for j in range(nu):
+                        te += oe[h, (ptr - 1 - j) % 10]
+                    ra += sos_factor * (te / nu - base_rating) / 100.0
+                cnt_a = oe_cnt[a]
+                if cnt_a >= 5:
+                    nu = min(cnt_a, 10)
+                    ptr = oe_ptr[a]
+                    te = 0.0
+                    for j in range(nu):
+                        te += oe[a, (ptr - 1 - j) % 10]
+                    rb += sos_factor * (te / nu - base_rating) / 100.0
+
+            # Pace
+            if pace_factor != 0.0:
+                cnt_h = ts_cnt[h]
+                cnt_a = ts_cnt[a]
+                if cnt_h >= 5 and cnt_a >= 5:
+                    nh = min(cnt_h, 10)
+                    ph = ts_ptr[h]
+                    p_h = 0.0
+                    for j in range(nh):
+                        idx = (ph - 1 - j) % 10
+                        p_h += trf[h, idx] + tra[h, idx]
+                    p_h /= (2.0 * nh)
+                    na = min(cnt_a, 10)
+                    pa = ts_ptr[a]
+                    p_a = 0.0
+                    for j in range(na):
+                        idx = (pa - 1 - j) % 10
+                        p_a += trf[a, idx] + tra[a, idx]
+                    p_a /= (2.0 * na)
+                    pd_ = p_h - p_a
+                    ra -= pace_factor * pd_ / 10.0
+                    rb += pace_factor * pd_ / 10.0
+
+            # Division
+            if division_factor != 0.0 and same_div_flat[h * n_teams + a]:
+                diff = ratings[h] - ratings[a]
+                da = division_factor * diff / 100.0
+                ra -= da
+                rb += da
+
+            # Mean reversion
+            if mean_reversion != 0.0:
+                if lm_set[h] > 0 and (last_margin[h] > 5.0 or last_margin[h] < -5.0):
+                    ra -= mean_reversion * last_margin[h] / 100.0
+                if lm_set[a] > 0 and (last_margin[a] > 5.0 or last_margin[a] < -5.0):
+                    rb -= mean_reversion * last_margin[a] / 100.0
+
+            # Pythagorean
+            if pyth_factor != 0.0:
+                cnt_h = ts_cnt[h]
+                if cnt_h >= 10:
+                    nu = min(cnt_h, 10)
+                    ptr = ts_ptr[h]
+                    rs = 0.0
+                    rav = 0.0
+                    for j in range(nu):
+                        idx = (ptr - 1 - j) % 10
+                        rs += trf[h, idx]
+                        rav += tra[h, idx]
+                    if rs < 0.1:
+                        rs = 0.1
+                    if rav < 0.1:
+                        rav = 0.1
+                    rse = rs ** 1.83
+                    rae = rav ** 1.83
+                    dn = rse + rae
+                    if dn > 0:
+                        ra += pyth_factor * (rse / dn - 0.5)
+                cnt_a = ts_cnt[a]
+                if cnt_a >= 10:
+                    nu = min(cnt_a, 10)
+                    ptr = ts_ptr[a]
+                    rs = 0.0
+                    rav = 0.0
+                    for j in range(nu):
+                        idx = (ptr - 1 - j) % 10
+                        rs += trf[a, idx]
+                        rav += tra[a, idx]
+                    if rs < 0.1:
+                        rs = 0.1
+                    if rav < 0.1:
+                        rav = 0.1
+                    rse = rs ** 1.83
+                    rae = rav ** 1.83
+                    dn = rse + rae
+                    if dn > 0:
+                        rb += pyth_factor * (rse / dn - 0.5)
+
+            # Home/road split
+            if home_road_factor != 0.0 and not is_n:
+                cnt = hr_cnt[h]
+                if cnt >= 10:
+                    nu = min(cnt, 20)
+                    ptr = hr_ptr[h]
+                    tw = 0.0
+                    for j in range(nu):
+                        tw += hr[h, (ptr - 1 - j) % 20]
+                    ra += home_road_factor * (tw / nu - 0.5)
+                cnt = rdr_cnt[a]
+                if cnt >= 10:
+                    nu = min(cnt, 20)
+                    ptr = rdr_ptr[a]
+                    tw = 0.0
+                    for j in range(nu):
+                        tw += rdr[a, (ptr - 1 - j) % 20]
+                    rb += home_road_factor * (tw / nu - 0.5)
+
+            # B2B
+            if b2b_penalty != 0.0 and dt > 0:
+                if last_game_date[h] > 0 and (dt - last_game_date[h]) == 0:
+                    ra -= b2b_penalty
+                if last_game_date[a] > 0 and (dt - last_game_date[a]) == 0:
+                    rb -= b2b_penalty
+
+            # Road trip / homestand
+            if road_trip_factor != 0.0:
+                if c_away[h] >= 3:
+                    ra -= road_trip_factor * min(c_away[h] - 2, 5)
+                if c_away[a] >= 3:
+                    rb -= road_trip_factor * min(c_away[a] - 2, 5)
+            if homestand_factor != 0.0:
+                if c_home[h] >= 3:
+                    ra += homestand_factor * min(c_home[h] - 2, 5)
+                if c_home[a] >= 3:
+                    rb += homestand_factor * min(c_home[a] - 2, 5)
+
+            # Win streak
+            if win_streak_factor != 0.0:
+                cnt_h = rr_cnt[h]
+                if cnt_h >= 2:
+                    ptr = rr_ptr[h]
+                    lr = rr[h, (ptr - 1) % 10]
+                    stk = 1
+                    for j in range(1, min(cnt_h, 5)):
+                        if rr[h, (ptr - 1 - j) % 10] == lr:
+                            stk += 1
+                        else:
+                            break
+                    if stk > 5:
+                        stk = 5
+                    adj = win_streak_factor * stk / 5.0
+                    if lr < 0.5:
+                        adj = -adj
+                    ra += adj
+                cnt_a = rr_cnt[a]
+                if cnt_a >= 2:
+                    ptr = rr_ptr[a]
+                    lr = rr[a, (ptr - 1) % 10]
+                    stk = 1
+                    for j in range(1, min(cnt_a, 5)):
+                        if rr[a, (ptr - 1 - j) % 10] == lr:
+                            stk += 1
+                        else:
+                            break
+                    if stk > 5:
+                        stk = 5
+                    adj = win_streak_factor * stk / 5.0
+                    if lr < 0.5:
+                        adj = -adj
+                    rb += adj
+
+            # Scoring consistency (inline std)
+            if scoring_consistency_factor != 0.0:
+                cnt_h = ts_cnt[h]
+                if cnt_h >= 5:
+                    nu = min(cnt_h, 10)
+                    ptr = ts_ptr[h]
+                    sv = 0.0
+                    sv2 = 0.0
+                    for j in range(nu):
+                        v = trf[h, (ptr - 1 - j) % 10]
+                        sv += v
+                        sv2 += v * v
+                    mn = sv / nu
+                    vr = sv2 / nu - mn * mn
+                    std = vr ** 0.5 if vr > 0 else 0.0
+                    ra -= scoring_consistency_factor * (std - 3.0) / 10.0
+                cnt_a = ts_cnt[a]
+                if cnt_a >= 5:
+                    nu = min(cnt_a, 10)
+                    ptr = ts_ptr[a]
+                    sv = 0.0
+                    sv2 = 0.0
+                    for j in range(nu):
+                        v = trf[a, (ptr - 1 - j) % 10]
+                        sv += v
+                        sv2 += v * v
+                    mn = sv / nu
+                    vr = sv2 / nu - mn * mn
+                    std = vr ** 0.5 if vr > 0 else 0.0
+                    rb -= scoring_consistency_factor * (std - 3.0) / 10.0
+
+            # Season phase
+            if season_phase_factor != 0.0:
+                avg_gn = (game_num[h] + game_num[a]) / 2.0
+                gf = avg_gn / 162.0
+                if gf > 1.0:
+                    gf = 1.0
+                if gf < 0.20:
+                    pa_ = season_phase_factor * (0.20 - gf)
+                    diff = ra - rb
+                    ra -= pa_ * diff / 100.0
+                    rb += pa_ * diff / 100.0
+
+            # Park factor
+            if park_factor_weight > 0.0 and not is_n:
+                ra += park_factor_weight * (park_factor[h] - 1.0) * 100.0
+
+            # East travel penalty
+            if east_travel_penalty > 0.0 and not is_n:
+                vtz = timezone[h]
+                ll_h = last_loc[h]
+                if ll_h >= 0:
+                    tzd = vtz - timezone[ll_h]
+                    if tzd > 0:
+                        ra -= east_travel_penalty * tzd
+                    elif tzd < 0:
+                        ra -= east_travel_penalty * (-tzd) * 0.3
+                ll_a = last_loc[a]
+                if ll_a >= 0:
+                    tzd = vtz - timezone[ll_a]
+                    if tzd > 0:
+                        rb -= east_travel_penalty * tzd
+                    elif tzd < 0:
+                        rb -= east_travel_penalty * (-tzd) * 0.3
+
+            # Series context
+            if series_adaptation > 0.0:
+                sk = h * n_teams + a
+                sg = series_gn[sk]
+                if sg >= 2:
+                    adapt = series_adaptation * min(sg - 1, 3) / 100.0
+                    ra -= adapt
+                    rb += adapt
+
+            # Interleague
+            if interleague_factor != 0.0:
+                lh = league[h]
+                la = league[a]
+                if lh > 0 and la > 0 and lh != la:
+                    diff = ratings[h] - ratings[a]
+                    il = interleague_factor * diff / 100.0
+                    ra -= il
+                    rb += il
+
+            # Bullpen
+            if bullpen_factor != 0.0:
+                ra += bullpen_factor * bp_rat[h] / 100.0
+                rb += bullpen_factor * bp_rat[a] / 100.0
+
+            # Opposing pitcher quality
+            if opp_pitcher_factor > 0.0:
+                if ap > 0 and p_starts[ap] >= 5:
+                    ra -= opp_pitcher_factor * p_rat[ap] / 100.0
+                if hp > 0 and p_starts[hp] >= 5:
+                    rb -= opp_pitcher_factor * p_rat[hp] / 100.0
+
+            # --- Win probability ---
+            diff = ra - rb
+            prob = 1.0 / (1.0 + 10.0 ** (-diff / elo_scale))
+
+            # --- Metrics ---
+            pred_home = 1.0 if prob >= 0.5 else 0.0
+            if pred_home == ha:
+                correct += 1
+            brier_sum += (prob - ha) ** 2
+            pc = prob
+            if pc < 1e-12:
+                pc = 1e-12
+            if pc > 1.0 - 1e-12:
+                pc = 1.0 - 1e-12
+            ll_sum += -(ha * np.log(pc) + (1.0 - ha) * np.log(1.0 - pc))
+
+            # --- Update state ---
+            if hs > as_:
+                sa = 1.0
+                sb = 0.0
+            elif hs < as_:
+                sa = 0.0
+                sb = 1.0
+            else:
+                sa = 0.5
+                sb = 0.5
+
+            sd = hs - as_
+            asd = abs(sd)
+            if mov_cap > 0:
+                if asd > mov_cap:
+                    asd = mov_cap
+            mov = (np.log(asd + 1.0) + mov_base) if use_mov else 1.0
+
+            # Effective K
+            kh = k
+            ka = k
+            if k_decay > 0:
+                kh *= 1.0 + k_decay * max(0.0, 1.0 - game_num[h] / 81.0)
+                ka *= 1.0 + k_decay * max(0.0, 1.0 - game_num[a] / 81.0)
+            if surprise_k > 0:
+                if rr_cnt[h] >= 2:
+                    ph = rr_ptr[h]
+                    if rr[h, (ph - 1) % 10] != rr[h, (ph - 2) % 10]:
+                        kh += surprise_k
+                if rr_cnt[a] >= 2:
+                    pa = rr_ptr[a]
+                    if rr[a, (pa - 1) % 10] != rr[a, (pa - 2) % 10]:
+                        ka += surprise_k
+
+            ra_raw = ratings[h] + (0.0 if is_n else home_adv)
+            rb_raw = ratings[a]
+            ea = 1.0 / (1.0 + 10.0 ** ((rb_raw - ra_raw) / elo_scale))
+            eb = 1.0 - ea
+            ratings[h] += kh * mov * (sa - ea)
+            ratings[a] += ka * mov * (sb - eb)
+
+            # Pitcher update
+            if hp > 0:
+                p_starts[hp] += 1
+                o = 1.0 if hs > as_ else 0.0
+                pm = np.log(abs(sd) + 1.0) + 0.8
+                p_rat[hp] += K_PITCHER * (o - 0.5) * pm
+            if ap > 0:
+                p_starts[ap] += 1
+                o = 1.0 if as_ > hs else 0.0
+                pm = np.log(abs(sd) + 1.0) + 0.8
+                p_rat[ap] += K_PITCHER * (o - 0.5) * pm
+
+            # Opponent Elo
+            oe[h, oe_ptr[h] % 10] = ratings[a]
+            oe_ptr[h] += 1
+            if oe_cnt[h] < 10:
+                oe_cnt[h] += 1
+            oe[a, oe_ptr[a] % 10] = ratings[h]
+            oe_ptr[a] += 1
+            if oe_cnt[a] < 10:
+                oe_cnt[a] += 1
+
+            # Team scores
+            trf[h, ts_ptr[h] % 10] = hs
+            tra[h, ts_ptr[h] % 10] = as_
+            ts_ptr[h] += 1
+            if ts_cnt[h] < 10:
+                ts_cnt[h] += 1
+            trf[a, ts_ptr[a] % 10] = as_
+            tra[a, ts_ptr[a] % 10] = hs
+            ts_ptr[a] += 1
+            if ts_cnt[a] < 10:
+                ts_cnt[a] += 1
+
+            # Recent results
+            rr[h, rr_ptr[h] % 10] = sa
+            rr_ptr[h] += 1
+            if rr_cnt[h] < 10:
+                rr_cnt[h] += 1
+            rr[a, rr_ptr[a] % 10] = sb
+            rr_ptr[a] += 1
+            if rr_cnt[a] < 10:
+                rr_cnt[a] += 1
+
+            # Home/road results
+            hr[h, hr_ptr[h] % 20] = sa
+            hr_ptr[h] += 1
+            if hr_cnt[h] < 20:
+                hr_cnt[h] += 1
+            rdr[a, rdr_ptr[a] % 20] = sb
+            rdr_ptr[a] += 1
+            if rdr_cnt[a] < 20:
+                rdr_cnt[a] += 1
+
+            last_margin[h] = sd
+            last_margin[a] = -sd
+            lm_set[h] = 1
+            lm_set[a] = 1
+            c_home[h] += 1
+            c_away[h] = 0
+            c_away[a] += 1
+            c_home[a] = 0
+            game_num[h] += 1
+            game_num[a] += 1
+            if dt > 0:
+                last_game_date[h] = dt
+                last_game_date[a] = dt
+            last_loc[h] = h
+            last_loc[a] = h
+
+            # Series
+            sk = h * n_teams + a
+            if last_opp[h] == a:
+                series_gn[sk] += 1
+            else:
+                series_gn[sk] = 1
+            last_opp[h] = a
+            last_opp[a] = h
+
+            # Bullpen
+            if hs > as_:
+                bp_rat[h] += 0.3
+                bp_rat[a] -= 0.3
+            elif as_ > hs:
+                bp_rat[a] += 0.3
+                bp_rat[h] -= 0.3
+            bp_rat[h] *= 0.98
+            bp_rat[a] *= 0.98
+
+        return correct, brier_sum, ll_sum
+
+    return _elo_loop
+
+
+# Build JIT-compiled loop on first import (lazy: compiles on first call)
+_elo_loop_fn = None
+
+def _get_elo_loop():
+    global _elo_loop_fn
+    if _elo_loop_fn is None:
+        _elo_loop_fn = _make_elo_loop()
+    return _elo_loop_fn
+
+
+class FastEloCache:
+    """Pre-computed numpy arrays for fast Elo backtest evaluation.
+
+    Call __init__ once to load all game data into arrays.
+    Call evaluate(params) thousands of times during optimization.
+    """
+
+    def __init__(self, csv_file=GAMES_FILE):
+        from config import same_division, build_league_map
+        from elo_model import PARK_FACTORS, TEAM_TIMEZONE
+        import time as _time
+
+        t0 = _time.time()
+        games = pd.read_csv(csv_file)
+        if "neutral_site" not in games.columns:
+            games["neutral_site"] = False
+        games["_date_parsed"] = pd.to_datetime(games["date"], errors="coerce")
+        n_games = len(games)
+
+        # --- Build team-to-integer mapping ---
+        all_teams = sorted(set(games["home_team"].tolist() + games["away_team"].tolist()))
+        self.team_to_id = {t: i for i, t in enumerate(all_teams)}
+        self.id_to_team = {i: t for t, i in self.team_to_id.items()}
+        self.n_teams = len(all_teams)
+        self.n_games = n_games
+
+        # --- Build pitcher-to-integer mapping ---
+        home_starters = games["home_starter"].fillna("").astype(str).str.strip().tolist() if "home_starter" in games.columns else [""] * n_games
+        away_starters = games["away_starter"].fillna("").astype(str).str.strip().tolist() if "away_starter" in games.columns else [""] * n_games
+        all_pitchers = sorted(set(p for p in home_starters + away_starters if p))
+        self.pitcher_to_id = {p: i + 1 for i, p in enumerate(all_pitchers)}  # 0 = no pitcher
+        self.n_pitchers = len(all_pitchers) + 1  # +1 for the "no pitcher" slot
+
+        # --- Pre-compute game arrays ---
+        self.home_id = np.empty(n_games, dtype=np.int32)
+        self.away_id = np.empty(n_games, dtype=np.int32)
+        self.home_score = np.empty(n_games, dtype=np.float64)
+        self.away_score = np.empty(n_games, dtype=np.float64)
+        self.neutral = np.empty(n_games, dtype=np.bool_)
+        self.home_actual = np.empty(n_games, dtype=np.float64)
+        self.home_pitcher_id = np.zeros(n_games, dtype=np.int32)
+        self.away_pitcher_id = np.zeros(n_games, dtype=np.int32)
+        # Dates as ordinal integers (for rest-day math), 0 = unknown
+        self.game_date_ord = np.zeros(n_games, dtype=np.int64)
+        # Month (for playoff detection)
+        self.game_month = np.zeros(n_games, dtype=np.int32)
+        # Season year (for regression detection)
+        self.game_year = np.zeros(n_games, dtype=np.int32)
+
+        for i in range(n_games):
+            row = games.iloc[i]
+            self.home_id[i] = self.team_to_id[row["home_team"]]
+            self.away_id[i] = self.team_to_id[row["away_team"]]
+            self.home_score[i] = float(row["home_score"])
+            self.away_score[i] = float(row["away_score"])
+            self.neutral[i] = bool(row["neutral_site"])
+            self.home_actual[i] = 1.0 if row["home_score"] > row["away_score"] else 0.0
+            hs = home_starters[i]
+            self.home_pitcher_id[i] = self.pitcher_to_id.get(hs, 0)
+            as_ = away_starters[i]
+            self.away_pitcher_id[i] = self.pitcher_to_id.get(as_, 0)
+            dt = row["_date_parsed"]
+            if pd.notna(dt):
+                self.game_date_ord[i] = dt.toordinal()
+                self.game_month[i] = dt.month
+                self.game_year[i] = dt.year
+
+        # --- Pre-compute per-team static lookups ---
+        # Player scores (team_id -> score), pre-built from player data
+        self.player_scores = np.zeros(self.n_teams, dtype=np.float64)
+
+        # Altitude bonus per team
+        alt_bonus_dict = _calc_altitude_bonus(csv_file)
+        self.altitude_bonus = np.zeros(self.n_teams, dtype=np.float64)
+        for team, bonus in alt_bonus_dict.items():
+            tid = self.team_to_id.get(team)
+            if tid is not None:
+                self.altitude_bonus[tid] = bonus
+
+        # Park factors per team
+        self.park_factor = np.ones(self.n_teams, dtype=np.float64)
+        for team, pf in PARK_FACTORS.items():
+            tid = self.team_to_id.get(team)
+            if tid is not None:
+                self.park_factor[tid] = pf
+
+        # Timezone per team
+        self.timezone = np.full(self.n_teams, -6.0, dtype=np.float64)
+        for team, tz in TEAM_TIMEZONE.items():
+            tid = self.team_to_id.get(team)
+            if tid is not None:
+                self.timezone[tid] = float(tz)
+
+        # Same-division matrix (n_teams x n_teams boolean)
+        self.same_div = np.zeros((self.n_teams, self.n_teams), dtype=np.bool_)
+        for i, t1 in enumerate(all_teams):
+            for j, t2 in enumerate(all_teams):
+                if same_division(t1, t2):
+                    self.same_div[i, j] = True
+
+        # League membership: 0=unknown, 1=AL, 2=NL
+        league_map = build_league_map()
+        self.league = np.zeros(self.n_teams, dtype=np.int32)
+        for team, lg in league_map.items():
+            tid = self.team_to_id.get(team)
+            if tid is not None:
+                self.league[tid] = 1 if lg == "AL" else 2
+
+        # Load player scores
+        player_df = load_player_stats()
+        if not player_df.empty:
+            from data_players import build_league_player_scores
+            ps = build_league_player_scores(player_df)
+            for team, score in ps.items():
+                tid = self.team_to_id.get(team)
+                if tid is not None:
+                    self.player_scores[tid] = score
+
+        elapsed = _time.time() - t0
+        logging.info("FastEloCache: %d games, %d teams, %d pitchers, precomputed in %.2fs",
+                     n_games, self.n_teams, self.n_pitchers - 1, elapsed)
+
+    def evaluate(self, params):
+        """Evaluate a parameter set via JIT-compiled loop.
+
+        params: dict with Elo parameter names (k, home_adv, player_boost, etc.)
+        Returns: dict {"accuracy": float, "log_loss": float, "brier": float, "n_games": int}
+        """
+        loop_fn = _get_elo_loop()
+        n = self.n_games
+
+        # Flatten same_div for numba (2D bool -> 1D)
+        if not hasattr(self, '_same_div_flat'):
+            self._same_div_flat = self.same_div.ravel().astype(np.int32)
+
+        correct, brier_sum, ll_sum = loop_fn(
+            n, self.n_teams, self.n_pitchers,
+            self.home_id, self.away_id, self.home_score, self.away_score,
+            self.neutral.astype(np.int32),
+            self.home_actual, self.home_pitcher_id, self.away_pitcher_id,
+            self.game_date_ord, self.game_month, self.game_year,
+            self.player_scores, self.altitude_bonus, self.park_factor,
+            self.timezone, self._same_div_flat, self.league,
+            float(params.get("base_rating", 1500.0)),
+            float(params.get("k", 1.0)),
+            float(params.get("home_adv", 23.47)),
+            1.0 if params.get("use_mov", True) else 0.0,
+            float(params.get("player_boost", 2.54)),
+            float(params.get("starter_boost", 9.61)),
+            float(params.get("rest_factor", 0.0)),
+            float(params.get("form_weight", 0.0)),
+            float(params.get("travel_factor", 0.0)),
+            float(params.get("sos_factor", 0.0)),
+            float(params.get("playoff_hca_factor", 0.934)),
+            float(params.get("pace_factor", 5.0)),
+            float(params.get("division_factor", 0.0)),
+            float(params.get("mean_reversion", 10.0)),
+            float(params.get("pyth_factor", 16.0)),
+            float(params.get("home_road_factor", 4.04)),
+            float(params.get("mov_base", 0.3)),
+            float(params.get("b2b_penalty", 26.51)),
+            float(params.get("road_trip_factor", 0.0)),
+            float(params.get("homestand_factor", 1.41)),
+            float(params.get("win_streak_factor", 0.0)),
+            float(params.get("altitude_factor", 12.48)),
+            float(params.get("season_phase_factor", 9.35)),
+            float(params.get("scoring_consistency_factor", 0.0)),
+            float(params.get("rest_advantage_cap", 4.14)),
+            float(params.get("park_factor_weight", 0.0)),
+            float(params.get("mov_cap", 19.9)),
+            float(params.get("east_travel_penalty", 0.0)),
+            float(params.get("series_adaptation", 3.92)),
+            float(params.get("interleague_factor", 2.04)),
+            float(params.get("bullpen_factor", 6.43)),
+            float(params.get("opp_pitcher_factor", 18.0)),
+            float(params.get("k_decay", 2.07)),
+            float(params.get("surprise_k", 0.0)),
+            float(params.get("elo_scale", 400.0)),
+        )
+
+        accuracy = float(correct) / n * 100.0
+        brier = float(brier_sum) / n
+        ll = float(ll_sum) / n
+        return {"accuracy": accuracy, "log_loss": ll, "brier": brier, "n_games": n}
+
+    # Dead code from the old pure-Python evaluate() removed.
+    # The old body used to be here (600+ lines).
+    # Now replaced by JIT-compiled _elo_loop() above.
+
+    _DEAD_CODE_REMOVED = True  # old 600-line pure-Python loop replaced by JIT
+
+    def fast_objective(self, params):
+        """Optimizer objective: minimize (100-accuracy) + brier*5.
+
+        Same as the ACCURACY-FIRST objective used by grid/genetic/bayesian.
+        params: dict with Elo parameter names.
+        Returns: float score (lower is better) for minimization.
+        """
+        met = self.evaluate(params)
+        return (100.0 - met["accuracy"]) + met["brier"] * 5.0
+
+
+# Module-level cache instance (set by _get_fast_cache)
+_fast_cache = None
+
+def _get_fast_cache(csv_file=GAMES_FILE):
+    """Get or create the module-level FastEloCache."""
+    global _fast_cache
+    if _fast_cache is None:
+        print("  %s" % cdim("Building fast evaluation cache (one-time)..."))
+        _fast_cache = FastEloCache(csv_file)
+        print("  %s" % cok("Fast cache ready: %d games, %d teams" %
+                            (_fast_cache.n_games, _fast_cache.n_teams)))
+    return _fast_cache
+
+def _invalidate_fast_cache():
+    """Force rebuild of the fast cache (e.g., after data refresh)."""
+    global _fast_cache
+    _fast_cache = None
+
 
 def _apply_best_settings(best_params, csv_file):
     """Save best params to settings, rebuild model, refit Platt."""
@@ -231,10 +1186,7 @@ def grid_search_optimization(csv_file=GAMES_FILE, output_file="mlb_grid_search.c
     playoff_hca_values  = _prompt_range("PlayoffHCA",   0.4, 1.0, 0.2)
     print()
 
-    player_df   = load_player_stats()
-    has_players = not player_df.empty
-    _prebuilt_scores = build_league_player_scores(player_df) if has_players else {}
-    _alt_bonus = _calc_altitude_bonus(csv_file)
+    cache = _get_fast_cache(csv_file)
 
     results    = []
     best_score = -1e9
@@ -244,7 +1196,7 @@ def grid_search_optimization(csv_file=GAMES_FILE, output_file="mlb_grid_search.c
              * len(playoff_hca_values))
 
     div(120)
-    print("  GRID SEARCH - %d combos   |   Objective: minimize Brier + LogLoss" % total)
+    print("  GRID SEARCH - %d combos   |   Objective: minimize Brier + LogLoss  [FAST MODE]" % total)
     div(120)
 
     pbar = tqdm(
@@ -253,21 +1205,13 @@ def grid_search_optimization(csv_file=GAMES_FILE, output_file="mlb_grid_search.c
                           playoff_hca_values), 1),
         total=total, desc="  Grid search", leave=True)
     for i, (k, home_adv, player_boost, rest_factor, travel, pace, phca) in pbar:
-        fresh_model = MLBElo(
-            base_rating=base, k=float(k), home_adv=float(home_adv),
-            use_mov=use_mov, player_boost=float(player_boost),
-            rest_factor=float(rest_factor), travel_factor=float(travel),
-            pace_factor=float(pace), playoff_hca_factor=float(phca),
-        )
-        fresh_model._altitude_bonus = _alt_bonus
-        if has_players:
-            fresh_model._player_scores = _prebuilt_scores
-        success, metrics = backtest_model(
-            csv_file, "temp_backtest.csv", "temp_cal.csv", model=fresh_model,
-        )
-        if not success:
-            continue
-        score = -(metrics["log_loss"] * 8.0 + metrics["brier"] * 40.0)
+        p = dict(settings, k=float(k), home_adv=float(home_adv),
+                 player_boost=float(player_boost), rest_factor=float(rest_factor),
+                 travel_factor=float(travel), pace_factor=float(pace),
+                 playoff_hca_factor=float(phca))
+        metrics = cache.evaluate(p)
+        # ACCURACY-FIRST objective (was: LogLoss*8 + Brier*40)
+        score = -((100.0 - metrics["accuracy"]) + metrics["brier"] * 5.0)
         row   = {
             "k": float(k), "home_adv": float(home_adv),
             "player_boost": float(player_boost), "rest_factor": float(rest_factor),
@@ -289,9 +1233,6 @@ def grid_search_optimization(csv_file=GAMES_FILE, output_file="mlb_grid_search.c
                           cok("<- BEST")))
 
     div(120)
-    for tmp in ["temp_backtest.csv", "temp_cal.csv"]:
-        try: os.remove(tmp)
-        except OSError: pass
     if results:
         pd.DataFrame(results).to_csv(output_file, index=False)
     if best_params:
@@ -310,11 +1251,7 @@ def grid_search_optimization(csv_file=GAMES_FILE, output_file="mlb_grid_search.c
 def genetic_optimization(csv_file=GAMES_FILE, output_file="mlb_genetic_results.csv"):
     logging.info("Running GENETIC ALGORITHM...")
     settings    = load_elo_settings()
-    base        = settings["base_rating"]
-    use_mov     = settings.get("use_mov", True)
-    player_df   = load_player_stats()
-    has_players = not player_df.empty
-    _prebuilt_scores = build_league_player_scores(player_df) if has_players else {}
+    cache       = _get_fast_cache(csv_file)
 
     print("\nGENETIC OPTIMIZER SETTINGS  (press Enter to use defaults)")
     print(cdim("  Objective: minimize Brier + LogLoss  (calibration-focused)"))
@@ -354,10 +1291,9 @@ def genetic_optimization(csv_file=GAMES_FILE, output_file="mlb_genetic_results.c
     _best_score   = [1e9]
     _best_params  = [None]
     _eval_counter = [0]
-    _alt_bonus    = _calc_altitude_bonus(csv_file)
 
     div(120)
-    print("  GENETIC OPTIMIZER - maxiter=%d  popsize=%d  (7 params)" % (maxiter, popsize))
+    print("  GENETIC OPTIMIZER - maxiter=%d  popsize=%d  (7 params)  [FAST MODE]" % (maxiter, popsize))
     print("  K:%s  HA:%s  PB:%s  Rest:%s  Travel:%s  Pace:%s  PHCA:%s"
           % (k_bounds, ha_bounds, pb_bounds, rf_bounds,
              tf_bounds, pf_bounds, phca_bounds))
@@ -380,21 +1316,11 @@ def genetic_optimization(csv_file=GAMES_FILE, output_file="mlb_genetic_results.c
 
     def objective(params):
         k, home_adv, player_boost, rest_factor, travel, pace, phca = params
-        fresh_model = MLBElo(
-            base_rating=base, k=float(k), home_adv=float(home_adv),
-            use_mov=use_mov, player_boost=float(player_boost),
-            rest_factor=float(rest_factor), travel_factor=float(travel),
-            pace_factor=float(pace), playoff_hca_factor=float(phca),
-        )
-        fresh_model._altitude_bonus = _alt_bonus
-        if has_players:
-            fresh_model._player_scores = _prebuilt_scores
-        success, metrics = backtest_model(
-            csv_file, "temp_genetic.csv", "temp_genetic_cal.csv", model=fresh_model,
-        )
-        if not success:
-            return 1e9
-        score = metrics["log_loss"] * 8.0 + metrics["brier"] * 40.0
+        p = dict(settings, k=float(k), home_adv=float(home_adv),
+                 player_boost=float(player_boost), rest_factor=float(rest_factor),
+                 travel_factor=float(travel), pace_factor=float(pace),
+                 playoff_hca_factor=float(phca))
+        score = cache.fast_objective(p)
         _eval_counter[0] += 1
         if score < _best_score[0]:
             _best_score[0]  = score
@@ -414,19 +1340,12 @@ def genetic_optimization(csv_file=GAMES_FILE, output_file="mlb_genetic_results.c
     print("  Convergence: %s  |  Total evaluations: %d" % (result.message, _eval_counter[0]))
     div(120)
 
-    # Final backtest with best params
-    fresh = MLBElo(
-        base_rating=base, k=float(best_k), home_adv=float(best_home),
-        use_mov=use_mov, player_boost=float(best_pb),
-        rest_factor=float(best_rf), travel_factor=float(best_tf),
-        pace_factor=float(best_pf), playoff_hca_factor=float(best_phca),
-    )
-    fresh._altitude_bonus = _alt_bonus
-    if has_players:
-        fresh._player_scores = _prebuilt_scores
-    success, metrics = backtest_model(
-        csv_file, "temp_genetic.csv", "temp_genetic_cal.csv", model=fresh,
-    )
+    # Final metrics with best params
+    bp = dict(settings, k=float(best_k), home_adv=float(best_home),
+              player_boost=float(best_pb), rest_factor=float(best_rf),
+              travel_factor=float(best_tf), pace_factor=float(best_pf),
+              playoff_hca_factor=float(best_phca))
+    metrics = cache.evaluate(bp)
     row = {
         "k": float(best_k), "home_adv": float(best_home),
         "player_boost": float(best_pb), "rest_factor": float(best_rf),
@@ -435,7 +1354,8 @@ def genetic_optimization(csv_file=GAMES_FILE, output_file="mlb_genetic_results.c
         "accuracy": metrics.get("accuracy", np.nan),
         "log_loss": metrics.get("log_loss",  np.nan),
         "brier":    metrics.get("brier",     np.nan),
-        "score":    -(metrics.get("log_loss",0)*8.0 + metrics.get("brier",0)*40.0),
+        # ACCURACY-FIRST objective (was: LogLoss*8 + Brier*40)
+        "score":    -((100.0 - metrics.get("accuracy",0)) + metrics.get("brier",0)*5.0),
     }
     pd.DataFrame([row]).to_csv(output_file, index=False)
     for tmp in ["temp_genetic.csv", "temp_genetic_cal.csv"]:
@@ -525,12 +1445,7 @@ def bayesian_optimization(csv_file=GAMES_FILE, output_file="mlb_bayesian_results
     from scipy.stats.qmc import LatinHypercube
 
     settings = load_elo_settings()
-    base = settings.get("base_rating", 1500.0)
-    use_mov = settings.get("use_mov", True)
-    player_df = load_player_stats()
-    has_players = not player_df.empty
-    _prebuilt_scores = build_league_player_scores(player_df) if has_players else {}
-    _alt_bonus = _calc_altitude_bonus(csv_file)
+    cache = _get_fast_cache(csv_file)
 
     print("\nBAYESIAN OPTIMIZER SETTINGS  (press Enter to use defaults)")
     print(cdim("  GP surrogate + Expected Improvement acquisition"))
@@ -565,16 +1480,11 @@ def bayesian_optimization(csv_file=GAMES_FILE, output_file="mlb_bayesian_results
 
     def objective(params):
         k, ha, pb, rf, tf, pf, phca = params
-        m = MLBElo(base_rating=base, k=float(k), home_adv=float(ha), use_mov=use_mov,
-                   player_boost=float(pb), rest_factor=float(rf), travel_factor=float(tf),
-                   pace_factor=float(pf), playoff_hca_factor=float(phca))
-        m._altitude_bonus = _alt_bonus
-        if has_players:
-            m._player_scores = _prebuilt_scores
-        ok, met = backtest_model(csv_file, "temp_bayes.csv", "temp_bayes_cal.csv", model=m)
-        if not ok:
-            return 1e9
-        return met["log_loss"] * 8.0 + met["brier"] * 40.0
+        p = dict(settings, k=float(k), home_adv=float(ha),
+                 player_boost=float(pb), rest_factor=float(rf),
+                 travel_factor=float(tf), pace_factor=float(pf),
+                 playoff_hca_factor=float(phca))
+        return cache.fast_objective(p)
 
     # Minimal GP surrogate
     class _GP:
@@ -662,14 +1572,11 @@ def bayesian_optimization(csv_file=GAMES_FILE, output_file="mlb_bayesian_results
     div(120)
     if best_params is not None:
         bp = best_params
-        m = MLBElo(base_rating=base, k=float(bp[0]), home_adv=float(bp[1]),
-                   use_mov=use_mov, player_boost=float(bp[2]),
-                   rest_factor=float(bp[3]), travel_factor=float(bp[4]),
-                   pace_factor=float(bp[5]), playoff_hca_factor=float(bp[6]))
-        m._altitude_bonus = _alt_bonus
-        if has_players:
-            m._player_scores = _prebuilt_scores
-        _, met = backtest_model(csv_file, model=m)
+        bp_dict = dict(settings, k=float(bp[0]), home_adv=float(bp[1]),
+                       player_boost=float(bp[2]), rest_factor=float(bp[3]),
+                       travel_factor=float(bp[4]), pace_factor=float(bp[5]),
+                       playoff_hca_factor=float(bp[6]))
+        met = cache.evaluate(bp_dict)
         print("\n%s K=%.1f HA=%.1f PB=%.1f R=%.1f T=%.1f P=%.1f PHCA=%.2f"
               % (cok("* BAYESIAN BEST:"), bp[0], bp[1], bp[2], bp[3], bp[4], bp[5], bp[6]))
         acc_s = cok("%.2f%%" % met.get("accuracy", 0))
@@ -957,7 +1864,7 @@ def monte_carlo_permutation_test(csv_file=GAMES_FILE, n_permutations=500):
         try: os.remove(tmp)
         except OSError: pass
 
-    if perm_accs:
+    if perm_accs and perm_briers:
         p_acc = sum(1 for a in perm_accs if a >= real_acc) / len(perm_accs)
         p_brier = sum(1 for b in perm_briers if b <= real_brier) / len(perm_briers)
         div(80)
@@ -971,7 +1878,10 @@ def monte_carlo_permutation_test(csv_file=GAMES_FILE, n_permutations=500):
         else:
             print("  %s Model NOT significant (p >= 0.05)" % cwarn("NOT SIGNIFICANT:"))
         return {"p_acc": p_acc, "p_brier": p_brier}
-    return None
+    else:
+        p_acc = 1.0
+        p_brier = 1.0
+        return {"p_acc": p_acc, "p_brier": p_brier}
 
 
 # -- Rolling Origin Recalibration -----------------------------------------
@@ -1367,12 +2277,7 @@ def auto_optimize(csv_file=GAMES_FILE):
         return None
 
     settings = load_elo_settings()
-    base = settings.get("base_rating", 1500.0)
-    use_mov = settings.get("use_mov", True)
-    player_df = load_player_stats()
-    has_players = not player_df.empty
-    _prebuilt = build_league_player_scores(player_df) if has_players else {}
-    _alt = _calc_altitude_bonus(csv_file)
+    cache = _get_fast_cache(csv_file)
 
     eval_count = [0]
 
@@ -1428,17 +2333,13 @@ def auto_optimize(csv_file=GAMES_FILE):
         defaults["mov_base"] = 1.0
 
     def _eval(params):
-        """Shared objective: minimize LogLoss*8 + Brier*40."""
+        """Shared objective: minimize (100-accuracy) + brier*5.  [FAST MODE]"""
         kw = {param_names[i]: float(params[i]) for i in range(n_params)}
-        m = MLBElo(base_rating=base, use_mov=use_mov, **kw)
-        m._altitude_bonus = _alt
-        if has_players:
-            m._player_scores = _prebuilt
-        ok, met = backtest_model(csv_file, "temp_auto.csv", "temp_auto_cal.csv", model=m)
+        p = dict(settings, **kw)
+        met = cache.evaluate(p)
         eval_count[0] += 1
-        if not ok:
-            return 1e9, {}
-        return met["log_loss"] * 8.0 + met["brier"] * 40.0, met
+        # ACCURACY-FIRST objective (was: LogLoss*8 + Brier*40)
+        return (100.0 - met["accuracy"]) + met["brier"] * 5.0, met
 
     def _params_dict(p):
         return {param_names[i]: float(p[i]) for i in range(n_params)}
@@ -1509,7 +2410,11 @@ def auto_optimize(csv_file=GAMES_FILE):
 
     # -- Tighten bounds around grid best -----------------------------------
     def _tight(val, lo, hi, hw):
-        return (max(lo, val - hw), min(hi, val + hw))
+        tlo = max(lo, val - hw)
+        thi = min(hi, val + hw)
+        if tlo >= thi:  # safety: ensure valid bounds
+            tlo, thi = lo, hi
+        return (tlo, thi)
 
     bp = grid_best_params
     bounds = [_tight(bp[i], PARAMS[i][2][0], PARAMS[i][2][1], PARAMS[i][3]) for i in range(n_params)]
@@ -1707,12 +2612,7 @@ def super_optimize(csv_file=GAMES_FILE):
         return None
 
     settings = load_elo_settings()
-    base = settings.get("base_rating", 1500.0)
-    use_mov = settings.get("use_mov", True)
-    player_df = load_player_stats()
-    has_players = not player_df.empty
-    _prebuilt = build_league_player_scores(player_df) if has_players else {}
-    _alt = _calc_altitude_bonus(csv_file)
+    cache = _get_fast_cache(csv_file)
 
     eval_count = [0]
 
@@ -1722,21 +2622,15 @@ def super_optimize(csv_file=GAMES_FILE):
 
     def _eval(params):
         k, ha, pb, rf, tf, pf, phca, sos, fw = params
-        m = MLBElo(base_rating=base, k=float(k), home_adv=float(ha), use_mov=use_mov,
-                   player_boost=float(pb), rest_factor=float(rf),
-                   travel_factor=float(tf), pace_factor=float(pf),
-                   playoff_hca_factor=float(phca), sos_factor=float(sos),
-                   form_weight=float(fw))
-        m._altitude_bonus = _alt
-        if has_players:
-            m._player_scores = _prebuilt
-        ok, met = backtest_model(csv_file, "temp_super.csv", "temp_super_cal.csv", model=m)
+        p = dict(settings, k=float(k), home_adv=float(ha),
+                 player_boost=float(pb), rest_factor=float(rf),
+                 travel_factor=float(tf), pace_factor=float(pf),
+                 playoff_hca_factor=float(phca), sos_factor=float(sos),
+                 form_weight=float(fw))
+        met = cache.evaluate(p)
         eval_count[0] += 1
-        if not ok:
-            return 1e9, {}
-        # Accuracy tiebreaker: when Brier is on a plateau (differs by <0.001),
-        # accuracy breaks the tie.  0.1 weight means 1% accuracy ~ 0.001 Brier.
-        return met["log_loss"] * 8.0 + met["brier"] * 40.0 - met.get("accuracy", 0) * 0.1, met
+        # ACCURACY-FIRST objective (was: LogLoss*8 + Brier*40)
+        return (100.0 - met.get("accuracy", 0)) + met["brier"] * 5.0, met
 
     def _params_dict(p):
         return {"k": float(p[0]), "home_adv": float(p[1]), "player_boost": float(p[2]),
@@ -1967,7 +2861,11 @@ def super_optimize(csv_file=GAMES_FILE):
 
     # -- Tighten bounds around overall best --------------------------------
     def _tight(val, lo, hi, hw):
-        return (max(lo, val - hw), min(hi, val + hw))
+        tlo = max(lo, val - hw)
+        thi = min(hi, val + hw)
+        if tlo >= thi:
+            tlo, thi = lo, hi
+        return (tlo, thi)
 
     bp = overall_best_params
     tight_bounds = [

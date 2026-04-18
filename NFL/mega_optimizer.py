@@ -19,7 +19,12 @@ import logging
 from itertools import product
 
 import numpy as np
-from tqdm import tqdm
+try:
+    from tqdm import tqdm
+except ImportError:
+    def tqdm(iterable=None, *a, **kw):
+        return iterable if iterable is not None else range(0)
+    tqdm.write = print
 
 _parent = os.path.dirname(__file__)
 if _parent not in sys.path:
@@ -113,7 +118,8 @@ def _eval(csv_file, sport, sport_dir, params, switches,
     if result is None or result.get("n_predictions", 0) == 0:
         return 1e9, {}
 
-    obj = result["log_loss"] * 8.0 + result["brier"] * 40.0
+    # ACCURACY-FIRST objective (was: LogLoss*8 + Brier*40)
+    obj = (100.0 - result["accuracy"]) + result["brier"] * 5.0
 
     return obj, result
 

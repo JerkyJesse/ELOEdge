@@ -7,7 +7,12 @@ v3: Elo + XGBoost ensemble, rest days, injury awareness
 import os
 import logging
 
-from colorama import Fore, Back, Style
+try:
+    from colorama import Fore, Back, Style
+except ImportError:
+    class _Dummy:
+        def __getattr__(self, _): return ""
+    Fore = Back = Style = _Dummy()
 
 from color_helpers import cok, cerr, cwarn, chi, cdim, cbold, div
 from config import (
@@ -32,6 +37,7 @@ from predict_ledger import (
     sell_predict_contract, resolve_predict_contracts,
     summarize_predict_lots, plot_pnl_chart,
     prompt_balance, show_balance, show_kelly_recommendation,
+    deposit_cash, withdraw_cash,
 )
 from live_scores import show_live_scores_for_open_trades
 from auto_resolve import auto_resolve_finished_trades
@@ -104,12 +110,14 @@ def dispatch(cmd, model, csv_file):
             print(cwarn("Run 'backtest' to refit the Platt calibration scaler."))
         else:
             print(cerr("Refresh failed - could not download recent games"))
-    elif cmd == "backtest":
-        _, metrics = backtest_model(csv_file, fit_platt=True)
+    elif cmd in ("backtest", "backtest resume"):
+        use_resume = "resume" in cmd
+        _, metrics = backtest_model(csv_file, fit_platt=True, resume=use_resume)
         model._platt_scaler = load_platt_scaler()
         acc_s = cok("%.2f%%" % metrics.get("accuracy", 0))
-        print("  Backtest accuracy: %s | LogLoss: %.4f | Brier: %.4f"
-              % (acc_s, metrics.get("log_loss", 0), metrics.get("brier", 0)))
+        label = " (resume)" if use_resume else ""
+        print("  Backtest%s accuracy: %s | LogLoss: %.4f | Brier: %.4f"
+              % (label, acc_s, metrics.get("log_loss", 0), metrics.get("brier", 0)))
     elif cmd in ("platt", "calibrate"):
         if model._platt_scaler:
             ps = model._platt_scaler
@@ -138,6 +146,23 @@ def dispatch(cmd, model, csv_file):
         show_live_scores_for_open_trades(model)
     elif cmd == "balance":
         show_balance()
+    elif cmd == "deposit":
+        deposit_cash()
+    elif cmd == "withdraw":
+        withdraw_cash()
+    elif cmd == "portfolio":
+        try:
+            import importlib.util
+            _pf_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "portfolio.py")
+            if os.path.exists(_pf_path):
+                _spec = importlib.util.spec_from_file_location("portfolio", _pf_path)
+                _pmod = importlib.util.module_from_spec(_spec)
+                _spec.loader.exec_module(_pmod)
+                _pmod.main()
+            else:
+                print(cerr("  Portfolio viewer not found at %s" % _pf_path))
+        except Exception as e:
+            print(cerr("  Portfolio error: %s" % e))
     elif cmd in ("predicts","summary"):
         summarize_predict_lots()
     elif cmd == "chart":
@@ -420,11 +445,41 @@ def dispatch(cmd, model, csv_file):
             show_odds_table("nhl")
         else:
             print(cerr("Odds module not available. pip install requests"))
-    elif cmd == "kalshi":
-        if HAS_KALSHI:
-            show_kalshi_odds("nhl")
+    elif cmd == "kalshi" or cmd.startswith("kalshi "):
+        sub = cmd[6:].strip() if len(cmd) > 6 else ""
+        if sub in ("help", "?"):
+            print("\n  " + cbold("KALSHI SUBCOMMANDS"))
+            print("  kalshi          Toggle auto_kalshi on/off")
+            print("  kalshi on       Enable auto_kalshi (auto-fetch odds during predictions)")
+            print("  kalshi off      Disable auto_kalshi")
+            print("  kalshi odds     Show all current Kalshi game markets")
+            print("  kalshi all      Same as 'kalshi odds'")
+            print("  kalshi help     Show this help")
+        elif sub in ("odds", "all"):
+            if HAS_KALSHI:
+                show_kalshi_odds("nhl")
+            else:
+                print(cerr("Kalshi module not available. Check kalshi.py"))
+        elif sub == "on":
+            settings = load_elo_settings()
+            settings["auto_kalshi"] = True
+            save_elo_settings(settings)
+            print(cok("  auto_kalshi is now ENABLED. Kalshi odds will auto-fetch during predictions."))
+        elif sub == "off":
+            settings = load_elo_settings()
+            settings["auto_kalshi"] = False
+            save_elo_settings(settings)
+            print(cwarn("  auto_kalshi is now DISABLED."))
+        elif sub == "":
+            # Toggle auto_kalshi on/off
+            settings = load_elo_settings()
+            current = settings.get("auto_kalshi", False)
+            settings["auto_kalshi"] = not current
+            save_elo_settings(settings)
+            state = "ENABLED" if not current else "DISABLED"
+            print(cok("  auto_kalshi toggled -> %s" % state) if not current else cwarn("  auto_kalshi toggled -> %s" % state))
         else:
-            print(cerr("Kalshi module not available. Check kalshi.py"))
+            print(cwarn("  Unknown kalshi subcommand: '%s'. Try 'kalshi help'." % sub))
     elif cmd == "weather":
         if HAS_MEGA_DATA:
             team = input(chi("  Home team: ")).strip()
@@ -515,21 +570,22 @@ TRADING:     predicts | balance | resolve | sell | mark | invert | chart
     if load_elo_settings().get("autoresolve_enabled", False):
         auto_resolve_finished_trades(model, verbose=True)
 
-    settings = load_elo_settings()
-    if float(settings.get("starting_balance", 0)) <= 0:
+    from config import load_portfolio_settings
+    psettings = load_portfolio_settings()
+    if float(psettings.get("starting_balance", 0)) <= 0:
         prompt_balance()
 
     KNOWN_CMDS = {
         "all","refresh","backtest","enhanced","enhanced decay","grid","genetic",
         "bayesian","results","players","settings","predicts","summary","chart",
-        "resolve","sell","mark","invert","live","help","autoresolve","balance",
+        "resolve","sell","mark","invert","live","help","autoresolve","balance","deposit","withdraw","portfolio",
         "autoresolve on","autoresolve off","today","html","blog","blogger",
         "tomorrow","platt","calibrate","injuries","shap","purgedcv","cpcv",
         "pbo","montecarlo","rollingcal","kelly","sliding","convergence",
         "conformal","betacal","autoopt","auto-optimize","auto optimize",
         "superopt","super-optimize","super optimize","super",
         "singleopt","single-opt","single opt","coorddescent","coord",
-        "kalshi",
+        "kalshi","kalshi on","kalshi off","kalshi odds","kalshi all","kalshi help",
     }
 
     while True:
@@ -612,19 +668,20 @@ TRADING:     predicts | balance | resolve | sell | mark | invert | chart
                     h_team = team_a if team_a_home else team_b
                     a_team = team_b if team_a_home else team_a
                     kalshi = find_kalshi_odds(h_team, a_team, "nhl")
-                    if kalshi and kalshi.get("midpoint"):
-                        bid = kalshi.get("home_yes_bid")
-                        ask = kalshi.get("home_yes_ask")
-                        mid = kalshi["midpoint"]
-                        if winner == a_team:
-                            bid = (100 - ask) if ask else None
-                            ask = (100 - (kalshi.get("home_yes_bid") or 0)) if kalshi.get("home_yes_bid") else None
-                            mid = (100 - kalshi["midpoint"])
-                        bid_s = "%d\u00a2" % bid if bid else "?"
-                        ask_s = "%d\u00a2" % ask if ask else "?"
-                        print("\n   %s  Kalshi: %s bid / %s ask  (mid %d\u00a2)"
-                              % (cok("KALSHI"), chi(bid_s), chi(ask_s), mid))
-                        market_cents = float(mid)
+                    if kalshi and (kalshi.get("home_midpoint") or kalshi.get("away_midpoint")):
+                        h_mid = kalshi.get("home_midpoint")
+                        a_mid = kalshi.get("away_midpoint")
+                        # Show both sides
+                        h_s = "%s: %d\u00a2 (%d%%)" % (h_team, h_mid, h_mid) if h_mid else "%s: ?" % h_team
+                        a_s = "%s: %d\u00a2 (%d%%)" % (a_team, a_mid, a_mid) if a_mid else "%s: ?" % a_team
+                        print("\n   %s  %s  |  %s" % (cok("KALSHI"), chi(h_s), chi(a_s)))
+                        # Use the predicted winner's side for Kelly sizing
+                        if winner == h_team and h_mid:
+                            market_cents = float(h_mid)
+                        elif winner == a_team and a_mid:
+                            market_cents = float(a_mid)
+                        elif h_mid:
+                            market_cents = float(h_mid)
                     else:
                         print(cdim("\n   Kalshi: no matching market found, enter manually"))
                 if market_cents is None:

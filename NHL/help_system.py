@@ -13,6 +13,8 @@ def show_help(topic=""):
         "bayesian","purgedcv","cpcv","pbo","montecarlo","rollingcal",
         "kelly","sliding","convergence","conformal","betacal","shap",
         "enhanced","advanced","autoopt","superopt","singleopt",
+        "deposit","withdraw","portfolio",
+        "mega","odds","weather","kalshi","injuries","balance","tomorrow",
     }
     if topic and topic not in HELP_TOPICS:
         from color_helpers import cwarn
@@ -73,12 +75,47 @@ def show_help(topic=""):
             ("invert",             "Flip side of open position (no accounting change)"),
             ("autoresolve",        "Manually run auto-settle on finished games"),
             ("autoresolve on/off", "Toggle automatic resolve during 'live'"),
+            ("deposit",            "Deposit cash to shared bankroll (all sports)"),
+            ("withdraw",           "Withdraw cash from shared bankroll"),
+            ("portfolio",          "Cross-sport portfolio view (all 4 sports)"),
             ("settings",           "Show current Elo parameters + Platt scaler status"),
             ("set k=8",            "Change settings (k, home_adv, player_boost, etc.)"),
             ("help [topic]",       "This help screen (or detailed help on one command)"),
             ("quit",               "Save & exit"),
         ]
         for cmd, desc in cmds:
+            print("  %-22s %s" % (chi(cmd), desc))
+        print()
+        print("  MEGA-ENSEMBLE  (35-model stacking system)")
+        div(W)
+        mega_cmds = [
+            ("mega",               "Run full 35-model mega-ensemble backtest"),
+            ("mega optimize",      "7-phase per-model optimization (54 hyperparams, 1-4hr)"),
+            ("mega quick",         "Quick grid search (Phase 1 only, ~15-30min)"),
+            ("mega tune",          "Per-model solo optimization"),
+            ("mega tournament",    "Head-to-head model tournament (Phase 2 only)"),
+            ("mega ablation",      "Single-model ablation study (contribution test)"),
+            ("mega models",        "Show all 35 models with ON/OFF status by tier"),
+            ("mega on/off <model>","Enable/disable individual model (or 'mega on all')"),
+            ("mega settings",      "Show all mega-ensemble parameter values"),
+            ("mega set <p>=<v>",   "Set mega param (e.g., mega set adj=0.10, meta=ridge)"),
+        ]
+        for cmd, desc in mega_cmds:
+            print("  %-22s %s" % (chi(cmd), desc))
+        print()
+        print("  DATA & ENRICHMENT")
+        div(W)
+        data_cmds = [
+            ("odds",               "Show current betting odds for today's NHL games"),
+            ("weather",            "Show weather report for home arena (limited for indoor NHL)"),
+            ("injuries",           "Show injury report with goalie-weighted Elo impact"),
+            ("injuries set",       "Manually set players OUT (injuries set <team> <p1>, <p2>)"),
+            ("kalshi",             "Toggle Kalshi prediction market auto-integration"),
+            ("kalshi odds",        "Show Kalshi market odds for today's games"),
+            ("balance",            "Show current account balance and cash flow"),
+            ("tomorrow",           "Generate HTML prediction table for tomorrow's NHL games"),
+        ]
+        for cmd, desc in data_cmds:
             print("  %-22s %s" % (chi(cmd), desc))
         print()
         print("  ADVANCED BACKTESTING & VALIDATION  (type 'help advanced' for details)")
@@ -217,26 +254,30 @@ def show_help(topic=""):
     elif topic == "superopt":
         section("superopt", "superopt",
                 "Exhaustive multi-round optimization - finds absolute best settings.",
-                steps=["Phase 1: Broad grid search (9 params)",
-                       "Phase 2: Genetic round 1 (wide bounds)",
-                       "Phase 3: Bayesian round 1 (wide bounds)",
-                       "Phase 4: Genetic round 2 (tightened bounds)",
-                       "Phase 5: Bayesian round 2 (tightened bounds)",
+                steps=["Phase 1: Broad grid search (9 params, ~6000+ combos)",
+                       "Phase 2: Genetic round 1 (wide bounds, 100 gen x 50 pop)",
+                       "Phase 3: Bayesian round 1 (wide bounds, 30 initial + 80 iter)",
+                       "Phase 4: Genetic round 2 (tightened bounds, 80 gen x 40 pop)",
+                       "Phase 5: Bayesian round 2 (tightened, 20 initial + 60 iter)",
                        "Phase 6: Fine grid (tiny steps around absolute best)",
                        "Phase 7: Validation (purgedcv + PBO + Monte Carlo)"],
-                notes=["Searches ALL 9 tunable params",
-                       "No prompts - runs fully unattended",
-                       "Settings auto-saved to nhl_elo_settings.json"])
+                notes=["Searches ALL 9 tunable params (K, HA, PB, Rest, Travel, Pace, PHCA, SOS, Form)",
+                       "No prompts - runs fully unattended for hours if needed",
+                       "Each round narrows the search space based on prior results",
+                       "Settings auto-saved to nhl_elo_settings.json (loads on every start)",
+                       "Platt scaler auto-refitted with winning parameters",
+                       "Takes 2-4 hours depending on data size"])
     elif topic == "autoopt":
         section("autoopt", "autoopt",
                 "Fully automatic optimization: grid -> genetic -> bayesian.",
-                steps=["Phase 1: Coarse grid search to find promising region",
-                       "Phase 2: Genetic optimization with tightened bounds",
-                       "Phase 3: Bayesian optimization",
+                steps=["Phase 1: Coarse grid search (768 combos) to find promising region",
+                       "Phase 2: Genetic optimization (50 gen, pop 25) with tightened bounds",
+                       "Phase 3: Bayesian optimization (15 initial + 40 iterations)",
                        "Phase 4: Compare all three winners, apply the absolute best"],
-                notes=["No interactive prompts -- runs fully unattended",
+                notes=["No interactive prompts — runs fully unattended",
                        "Takes ~15-30 minutes depending on data size",
-                       "Auto-saves best settings and refits Platt on completion"])
+                       "Auto-saves best settings and refits Platt on completion",
+                       "Equivalent to running grid -> genetic -> bayesian manually"])
     elif topic == "singleopt":
         section("singleopt", "singleopt",
                 "Coordinate descent: optimize one parameter at a time for accuracy.",
@@ -254,7 +295,7 @@ def show_help(topic=""):
         section("platt / calibrate", "platt",
                 "Show Platt calibration scaler status.",
                 notes=[
-                    "Fixes overconfidence/underconfidence from your calibration data",
+                    "Fixes overconfidence at 0.9+ and underconfidence at 0.1-0.2 (from your calibration data)",
                     "Fitted automatically when you run 'backtest'",
                     "Saved to nhl_platt_scaler.json, loaded automatically on startup",
                     "Refit after any major refresh or param change",
@@ -296,4 +337,91 @@ def show_help(topic=""):
                 notes=["backtest -> fits Platt scaler, reports calibrated Brier",
                        "grid/genetic -> objective is -(logloss*8 + brier*40)",
                        "results -> show best parameters found so far"])
+    elif topic == "deposit":
+        section("deposit", "deposit",
+                "Add funds to the shared cross-sport bankroll.",
+                steps=["Enter dollar amount to deposit",
+                       "Optionally add a note for the transaction",
+                       "Balance updates across all 4 sports immediately"],
+                notes=["Shared bankroll: deposit once, trade any sport",
+                       "Transaction logged with timestamp in cash_transactions.csv",
+                       "Use 'balance' to see current balance and cash flow summary"])
+    elif topic == "withdraw":
+        section("withdraw", "withdraw",
+                "Remove funds from the shared cross-sport bankroll.",
+                steps=["See current available balance",
+                       "Enter dollar amount to withdraw",
+                       "Optionally add a note for the transaction"],
+                notes=["Cannot withdraw more than current available balance",
+                       "Balance accounts for all open positions across all sports",
+                       "Transaction logged with timestamp in cash_transactions.csv"])
+    elif topic == "portfolio":
+        section("portfolio", "portfolio",
+                "View cross-sport portfolio showing all 4 sports at once.",
+                notes=["Shows per-sport: open positions, realized P&L, unrealized P&L, win rate",
+                       "Shows total shared balance, total P&L, overall ROI",
+                       "Shows deposit/withdrawal history summary",
+                       "Can also run standalone: python portfolio.py"])
+    elif topic == "mega":
+        section("mega", "mega  OR  mega optimize  OR  mega quick",
+                "35-model mega-ensemble backtest and optimization system.",
+                steps=["mega           - Run full ensemble backtest (all enabled models)",
+                       "mega optimize  - 7-phase per-model optimization (54 hyperparams)",
+                       "mega quick     - Quick grid search (Phase 1 only)",
+                       "mega tune      - Per-model solo optimization",
+                       "mega tournament - Head-to-head model comparison tournament",
+                       "mega ablation  - Test each model's individual contribution"],
+                notes=["35 models across 8 tiers: Elo, XGBoost, HMM, Kalman, LightGBM, LSTM, etc.",
+                       "Meta-learner stacks model outputs via Ridge/Logistic/XGBoost",
+                       "Use 'mega models' to see ON/OFF status per model",
+                       "Use 'mega on/off <model>' to enable/disable (e.g., mega off lstm)",
+                       "Use 'mega set <param>=<value>' to change hyperparams (e.g., mega set adj=0.10)",
+                       "Use 'mega settings' to view all 54 tunable parameters"],
+                examples=["mega", "mega optimize", "mega quick", "mega models", "mega set adj=0.08"])
+    elif topic == "odds":
+        section("odds", "odds",
+                "Show current betting odds for today's NHL games.",
+                notes=["Fetches live odds from The Odds API (requires API key in config)",
+                       "Shows moneyline, spread (puck line), and over/under from major books",
+                       "Odds used as features in XGBoost ensemble and mega-ensemble",
+                       "Free tier: 500 requests/month (sufficient for daily use)"])
+    elif topic == "weather":
+        section("weather", "weather",
+                "Show weather report for home arena.",
+                notes=["NHL is played indoors — weather has minimal game impact",
+                       "Fetches data from Open-Meteo (free, no API key required)",
+                       "Included for completeness; more relevant for MLB/NFL outdoor games",
+                       "Weather features are still tracked in the mega-ensemble"])
+    elif topic == "kalshi":
+        section("kalshi", "kalshi  OR  kalshi on  OR  kalshi off  OR  kalshi odds",
+                "Kalshi prediction market integration.",
+                notes=["kalshi        - Toggle auto_kalshi setting on/off",
+                       "kalshi on     - Enable automatic Kalshi odds fetching",
+                       "kalshi off    - Disable Kalshi odds fetching",
+                       "kalshi odds   - Show current Kalshi market odds for today",
+                       "When enabled, Kalshi odds are shown alongside model predictions",
+                       "Requires Kalshi API access (see kalshi.py for setup)"])
+    elif topic == "injuries":
+        section("injuries", "injuries  OR  injuries set <team> <player1>, <player2>",
+                "Show injury report with goalie-weighted Elo impact estimates.",
+                notes=["Fetches current injury data from ESPN",
+                       "Goalie injuries dominate: star goalie OUT = -35 Elo (~50%% of team value)",
+                       "Starting goalie OUT = -25 Elo, backup goalie OUT = -15 Elo",
+                       "Per-goalie K_GOALIE=6 sub-ratings track individual goalie performance",
+                       "Use 'injuries set <team> <player1>, <player2>' to manually mark players OUT",
+                       "Injury adjustments applied automatically during predictions"])
+    elif topic == "balance":
+        section("balance", "balance",
+                "Show current account balance and cash flow summary.",
+                notes=["Shows total bankroll across all 4 sports",
+                       "Includes deposits, withdrawals, and net trading P&L",
+                       "Shared bankroll: same balance used by NBA, MLB, NFL, NHL",
+                       "See also: 'deposit', 'withdraw', 'portfolio'"])
+    elif topic == "tomorrow":
+        section("tomorrow", "tomorrow",
+                "Generate HTML prediction table for tomorrow's NHL games.",
+                notes=["Same as 'today' but fetches tomorrow's schedule",
+                       "Saves to today_nhl_predictions.html (same file, overwritten)",
+                       "Useful for pre-game analysis and blog prep",
+                       "Includes calibrated probabilities and model confidence"])
     print()

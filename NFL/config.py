@@ -19,7 +19,15 @@ GAMES_FILE             = "nfl_recent_games.csv"
 RATINGS_FILE           = "nfl_elo_ratings.json"
 ADVANCED_STATS_FILE    = "nfl_advanced_stats.csv"
 PLATT_SCALER_FILE      = "nfl_platt_scaler.json"
+BACKTEST_FILE           = "nfl_backtest_predictions.csv"
 CACHE_MAX_AGE_HOURS    = 6
+
+# ── Cross-sport shared wallet paths ──
+_SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+_PARENT_DIR = os.path.dirname(_SCRIPT_DIR)
+PORTFOLIO_SETTINGS_FILE = os.path.join(_PARENT_DIR, "portfolio_settings.json")
+CASH_TRANSACTIONS_FILE = os.path.join(_PARENT_DIR, "cash_transactions.csv")
+SPORT_DIRS = ["NBA", "NFL", "MLB", "NHL"]
 
 TEAM_ABBR = {
     "Arizona Cardinals": "ARI",    "Atlanta Falcons": "ATL",
@@ -133,3 +141,24 @@ def save_elo_settings(settings, filename=SETTINGS_FILE):
         logging.info("Saved settings -> %s", filename)
     except Exception as e:
         logging.warning("Save failed: %s", e)
+
+
+def load_portfolio_settings(filename=PORTFOLIO_SETTINGS_FILE):
+    defaults = {"starting_balance": 0.0}
+    if os.path.exists(filename):
+        try:
+            with open(filename, "r") as f:
+                saved = json.load(f)
+            defaults.update(saved)
+        except Exception as e:
+            logging.warning("Portfolio settings load failed: %s", e)
+    return defaults
+
+
+def save_portfolio_settings(settings, filename=PORTFOLIO_SETTINGS_FILE):
+    try:
+        with open(filename, "w") as f:
+            json.dump(settings, f, indent=2)
+        logging.info("Saved portfolio settings -> %s", filename)
+    except Exception as e:
+        logging.warning("Portfolio settings save failed: %s", e)

@@ -13,7 +13,7 @@ from config import GAMES_FILE, load_elo_settings, save_elo_settings
 from data_players import load_player_stats, build_league_player_scores
 from build_model import _calc_altitude_bonus
 from elo_model import NBAElo as EloClass
-from backtest import backtest_model
+from backtest import backtest_model, precompute_games, fast_evaluate
 
 sport_prefix = "NBA"
 
@@ -25,6 +25,10 @@ player_df = load_player_stats()
 has_players = not player_df.empty
 prebuilt_scores = build_league_player_scores(player_df) if has_players else {}
 alt_bonus = _calc_altitude_bonus(GAMES_FILE)
+
+# Pre-compute game arrays once for fast evaluation
+_pc = precompute_games(GAMES_FILE, prebuilt_scores if has_players else None,
+                       alt_bonus, base)
 
 _ELO_KEYS = {"base_rating", "k", "home_adv", "use_mov", "player_boost",
              "rest_factor", "form_weight", "travel_factor", "sos_factor",
@@ -52,17 +56,15 @@ t_start = time.time()
 
 def objective(params):
     k, ha, pb, rf, tf, pf, phca, sos, fw = params
-    m = EloClass(base_rating=base, k=float(k), home_adv=float(ha), use_mov=use_mov,
-                 player_boost=float(pb), rest_factor=float(rf),
-                 travel_factor=float(tf), pace_factor=float(pf),
-                 playoff_hca_factor=float(phca), sos_factor=float(sos),
-                 form_weight=float(fw))
-    m._altitude_bonus = alt_bonus
-    if has_players:
-        m._player_scores = prebuilt_scores
-    ok, met = backtest_model(GAMES_FILE, "temp_acc_opt.csv", "temp_acc_cal.csv", model=m)
+    met = fast_evaluate(
+        _pc, k=float(k), home_adv=float(ha), use_mov=use_mov,
+        player_boost=float(pb), rest_factor=float(rf),
+        travel_factor=float(tf), pace_factor=float(pf),
+        playoff_hca_factor=float(phca), sos_factor=float(sos),
+        form_weight=float(fw),
+    )
     eval_count[0] += 1
-    if not ok:
+    if met is None:
         return 1.0
 
     acc = met["accuracy"]

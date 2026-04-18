@@ -102,12 +102,23 @@ def manual_set_injuries(team_name, out_players):
     """Manually mark players as out. Merges with existing cache."""
     injuries = _load_cache() or []
     for player in out_players:
-        injuries.append({
-            "player": player.strip(),
-            "team": team_name,
-            "status": "Out",
-            "detail": "manual",
-        })
+        name = player.strip()
+        # Deduplicate: update existing entry instead of appending a duplicate
+        existing = None
+        for inj in injuries:
+            if inj.get("player", "").lower() == name.lower() and inj.get("team", "").lower() == team_name.lower():
+                existing = inj
+                break
+        if existing:
+            existing["status"] = "Out"
+            existing["detail"] = "manual"
+        else:
+            injuries.append({
+                "player": name,
+                "team": team_name,
+                "status": "Out",
+                "detail": "manual",
+            })
     _save_cache(injuries)
     return injuries
 

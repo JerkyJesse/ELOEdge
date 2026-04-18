@@ -19,7 +19,12 @@ from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
 import pandas as pd
-from tqdm import tqdm
+try:
+    from tqdm import tqdm
+except ImportError:
+    def tqdm(iterable=None, *a, **kw):
+        return iterable if iterable is not None else range(0)
+    tqdm.write = print
 
 # Import all base models from parent directory
 
@@ -47,6 +52,7 @@ from svm_model import SVMPredictor
 from fibonacci_model import LeagueFibonacci
 from benford_model import LeagueBenford
 from evt_model import LeagueEVT
+from moedim_model import LeagueMoedim
 from mega_config import load_model_switches, is_model_enabled, get_default_switches
 
 # Try importing classic models (Tier 5)
@@ -332,6 +338,10 @@ def run_mega_backtest(csv_file, sport="nfl", elo_model_class=None,
     benford = LeagueBenford(min_games=defaults["hmm_min_games"],
                             **model_params.get("benford", {})) if _on("benford") else None
 
+    # Moedim (Tier 3 addition)
+    _hp = model_params.get("moedim", {})
+    moedim = LeagueMoedim(sport=sport, **_hp) if _on("moedim") else None
+
     # 10. Tier 5: Classic models
     srs = None; colley = None; log5 = None
     pythagenpat = None; exp_smoother = None; mean_revert = None
@@ -419,73 +429,32 @@ def run_mega_backtest(csv_file, sport="nfl", elo_model_class=None,
             feature_row["elo_prob"] = 0.5
             feature_row["elo_diff"] = 0.0
 
+        # ── Fast models (inline, <1ms each) ──────────────────────
         # 2. HMM state probabilities
         if hmm:
             feature_row.update(hmm.get_features(home, away))
-
         # 3. Kalman filter
         if kalman:
             feature_row.update(kalman.get_features(home, away))
-
-        # 4. Network (PageRank)
-        if network:
-            if network.n_games >= 20:
-                network.compute_centralities()
-                feature_row.update(network.get_features(home, away))
-
-        # 5. Volatility
-        if volatility:
-            feature_row.update(volatility.get_features(home, away))
-
-        # 6. Signal processing
-        if signal_m:
-            feature_row.update(signal_m.get_features(home, away))
-
-        # 7. Survival analysis
-        if survival:
-            feature_row.update(survival.get_features(home, away))
-
-        # 8. Copula
-        if copula:
-            feature_row.update(copula.get_features(home, away))
-
         # 9. Information theory
         if info_theory:
             feature_row.update(info_theory.get_features(home, away, window=window))
-
         # 10. Momentum
         if momentum_m:
             feature_row.update(momentum_m.get_features(home, away))
-
         # 11. Markov chain
         if markov:
             feature_row.update(markov.get_features(home, away))
-
-        # 12. Clustering
-        if clustering:
-            feature_row.update(clustering.get_features(home, away))
-
         # 13. Game theory
         if game_theory:
             feature_row.update(game_theory.get_features(home, away))
-
-        # 14. Poisson
-        if poisson and poisson._fitted:
-            feature_row.update(poisson.get_features(home, away))
-
         # 15. Glicko-2
         if glicko:
             feature_row.update(glicko.get_features(home, away))
-
-        # 16. Bradley-Terry
-        if bradley_terry and bradley_terry._fitted:
-            feature_row.update(bradley_terry.get_features(home, away))
-
-        # 17. Monte Carlo
-        if monte_carlo:
-            feature_row.update(monte_carlo.get_features(home, away))
-
-        # 18. Classic models (Tier 5)
+        # 7. Survival analysis
+        if survival:
+            feature_row.update(survival.get_features(home, away))
+        # 18. Classic models (Tier 5) - fast dict lookups
         if srs:
             feature_row.update(srs.get_features(home, away))
         if colley:
@@ -498,14 +467,45 @@ def run_mega_backtest(csv_file, sport="nfl", elo_model_class=None,
             feature_row.update(exp_smoother.get_features(home, away))
         if mean_revert:
             feature_row.update(mean_revert.get_features(home, away))
-
-        # New models: Fibonacci, Benford, EVT
+        # Fibonacci, Benford
         if fibonacci:
             feature_row.update(fibonacci.get_features(home, away))
         if benford:
             feature_row.update(benford.get_features(home, away))
-        if evt:
-            feature_row.update(evt.get_features(home, away))
+        if moedim:
+            feature_row.update(moedim.get_features(home, away, game_date=game_date))
+
+        # ── Slow models (parallelized, graph/ML computation) ──
+        # 4. Network (PageRank) - centralities cached every 50 games
+        if network and network.n_games >= 20:
+            if game_idx % 50 == 0:
+                network.compute_centralities()
+
+        slow_futures = {}
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            if network and network.n_games >= 20 and hasattr(network, 'get_features'):
+                slow_futures['network'] = pool.submit(network.get_features, home, away)
+            if monte_carlo and hasattr(monte_carlo, 'get_features'):
+                slow_futures['monte_carlo'] = pool.submit(monte_carlo.get_features, home, away)
+            if volatility and hasattr(volatility, 'get_features'):
+                slow_futures['volatility'] = pool.submit(volatility.get_features, home, away)
+            if evt and hasattr(evt, 'get_features'):
+                slow_futures['evt'] = pool.submit(evt.get_features, home, away)
+            if copula and hasattr(copula, 'get_features'):
+                slow_futures['copula'] = pool.submit(copula.get_features, home, away)
+            if clustering and hasattr(clustering, 'get_features'):
+                slow_futures['clustering'] = pool.submit(clustering.get_features, home, away)
+            if signal_m and hasattr(signal_m, 'get_features'):
+                slow_futures['signal'] = pool.submit(signal_m.get_features, home, away)
+            if poisson and poisson._fitted and hasattr(poisson, 'get_features'):
+                slow_futures['poisson'] = pool.submit(poisson.get_features, home, away)
+            if bradley_terry and bradley_terry._fitted and hasattr(bradley_terry, 'get_features'):
+                slow_futures['bradley_terry'] = pool.submit(bradley_terry.get_features, home, away)
+            for key, future in slow_futures.items():
+                try:
+                    feature_row.update(future.result())
+                except Exception:
+                    pass  # Skip failed model features
 
         # 19. Data enrichment: Odds
         if odds_data and _on("odds"):
@@ -764,6 +764,9 @@ def run_mega_backtest(csv_file, sport="nfl", elo_model_class=None,
         if evt:
             evt.add_game(home, margin)
             evt.add_game(away, -margin)
+        if moedim:
+            moedim.add_game(home)
+            moedim.add_game(away)
 
         # Classic model updates (all use same API: home, away, h_score, a_score)
         if srs:
@@ -779,22 +782,19 @@ def run_mega_backtest(csv_file, sport="nfl", elo_model_class=None,
         if mean_revert:
             mean_revert.add_game(home, away, h_score, a_score)
 
-        # Periodically refit expensive models
+        # Periodically refit expensive models (parallelized)
         if game_idx > 0 and game_idx % 50 == 0:
-            if volatility:
-                volatility.fit_all()
-            if evt:
-                evt.fit_all()
-            if clustering:
-                clustering.fit()
-            if poisson:
-                poisson.fit()
-            if bradley_terry:
-                bradley_terry.fit()
-            if srs:
-                srs.fit()
-            if colley:
-                colley.fit()
+            with ThreadPoolExecutor(max_workers=4) as pool:
+                fit_futures = []
+                if volatility: fit_futures.append(pool.submit(volatility.fit_all))
+                if evt: fit_futures.append(pool.submit(evt.fit_all))
+                if clustering: fit_futures.append(pool.submit(clustering.fit))
+                if poisson: fit_futures.append(pool.submit(poisson.fit))
+                if bradley_terry: fit_futures.append(pool.submit(bradley_terry.fit))
+                if srs: fit_futures.append(pool.submit(srs.fit))
+                if colley: fit_futures.append(pool.submit(colley.fit))
+                for f in fit_futures:
+                    f.result()
 
         # Team tracking
         team_margins[home].append(margin)

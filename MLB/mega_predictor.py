@@ -49,6 +49,7 @@ from svm_model import SVMPredictor
 from fibonacci_model import LeagueFibonacci
 from benford_model import LeagueBenford
 from evt_model import LeagueEVT
+from moedim_model import LeagueMoedim
 from mega_config import load_model_switches, is_model_enabled
 from mega_backtest import SPORT_DEFAULTS, _rolling_features
 
@@ -210,6 +211,10 @@ class MegaPredictor:
         fibonacci = LeagueFibonacci(min_games=defaults["hmm_min_games"]) if _on("fibonacci") else None
         evt = LeagueEVT(min_games=defaults["hmm_min_games"]) if _on("evt") else None
         benford = LeagueBenford(min_games=defaults["hmm_min_games"]) if _on("benford") else None
+        _hp = mp.get("moedim", {})
+        moedim_m = LeagueMoedim(sport=sport, **_hp) if _on("moedim") else None
+        if moedim_m:
+            self._models["moedim"] = moedim_m
         if svm_m:
             self._models["svm"] = svm_m
         if fibonacci:
@@ -452,6 +457,9 @@ class MegaPredictor:
         evt = self._models.get("evt")
         if evt:
             feature_row.update(evt.get_features(home, away))
+        moedim_m = self._models.get("moedim")
+        if moedim_m:
+            feature_row.update(moedim_m.get_features(home, away, game_date=game_date))
 
         # Rolling team features
         home_rolling = _rolling_features(
@@ -595,6 +603,10 @@ class MegaPredictor:
         if evt:
             evt.add_game(home, margin)
             evt.add_game(away, -margin)
+        moedim_m = self._models.get("moedim")
+        if moedim_m:
+            moedim_m.add_game(home)
+            moedim_m.add_game(away)
 
         # Rolling team tracking
         self._team_margins[home].append(margin)

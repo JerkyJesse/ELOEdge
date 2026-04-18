@@ -6,11 +6,8 @@
 pandas>=1.5
 numpy>=1.24
 scipy>=1.10
-colorama>=0.4
-tqdm>=4.60
 xgboost>=2.0
 requests>=2.28
-matplotlib>=3.7
 
 # MLB data APIs
 MLB-StatsAPI>=1.7         # MLB scores and stats

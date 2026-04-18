@@ -8,6 +8,7 @@ Rate limit: 20 req/sec (basic tier, read-only)
 """
 
 import logging
+import threading
 import time
 from datetime import datetime, timedelta
 from difflib import get_close_matches
@@ -26,14 +27,16 @@ SPORT_SERIES = {
 
 # ── In-memory cache ──────────────────────────────────────────────
 _cache = {}            # {sport: {"events": [...], "fetched_at": float}}
+_cache_lock = threading.Lock()
 CACHE_TTL_SECONDS = 60
 
 
 def _is_cache_fresh(sport):
-    entry = _cache.get(sport)
-    if not entry:
-        return False
-    return (time.time() - entry["fetched_at"]) < CACHE_TTL_SECONDS
+    with _cache_lock:
+        entry = _cache.get(sport)
+        if not entry:
+            return False
+        return (time.time() - entry["fetched_at"]) < CACHE_TTL_SECONDS
 
 
 # ── Kalshi team name mapping ─────────────────────────────────────
@@ -141,7 +144,8 @@ def fetch_kalshi_events(sport):
     """
     sport_l = sport.lower()
     if _is_cache_fresh(sport_l):
-        return _cache[sport_l]["events"]
+        with _cache_lock:
+            return _cache[sport_l]["events"]
 
     series = SPORT_SERIES.get(sport_l)
     if not series:
@@ -161,13 +165,16 @@ def fetch_kalshi_events(sport):
         )
         resp.raise_for_status()
         events = resp.json().get("events", [])
-        _cache[sport_l] = {"events": events, "fetched_at": time.time()}
+        with _cache_lock:
+            _cache[sport_l] = {"events": events, "fetched_at": time.time()}
         return events
     except requests.RequestException as e:
         logging.error("Kalshi API error: %s", e)
         # Return stale cache if available
-        if sport_l in _cache:
-            return _cache[sport_l]["events"]
+        with _cache_lock:
+            if sport_l in _cache:
+                logging.info("Using cached Kalshi data (may be stale)")
+                return _cache[sport_l]["events"]
         return []
 
 
@@ -210,8 +217,29 @@ def fetch_orderbook(ticker):
         return None, None
 
 
+def _compute_midpoint(bid, ask):
+    """Compute midpoint from bid/ask, handling None values."""
+    if bid and ask:
+        return (bid + ask) // 2
+    elif bid:
+        return bid
+    elif ask:
+        return ask
+    return None
+
+
+def _complement_price(price):
+    """Compute the NO side price: 100 - YES price."""
+    if price is not None:
+        return 100 - price
+    return None
+
+
 def find_kalshi_odds(home_team, away_team, sport):
     """Find Kalshi market odds for a specific game matchup.
+
+    Handles both single-market events (YES/NO on one ticker) and
+    two-market events (separate ticker per team).
 
     Args:
         home_team: Full team name (e.g. "New York Yankees")
@@ -222,10 +250,15 @@ def find_kalshi_odds(home_team, away_team, sport):
         Dict with keys:
             home_yes_bid: int (cents) — best bid for home team YES
             home_yes_ask: int (cents) — best ask for home team YES
+            home_midpoint: int (cents) — midpoint of home bid/ask
+            away_yes_bid: int (cents) — best bid for away team YES
+            away_yes_ask: int (cents) — best ask for away team YES
+            away_midpoint: int (cents) — midpoint of away bid/ask
             home_ticker: str — market ticker for home team
             away_ticker: str — market ticker for away team
             event_title: str — event title
-            midpoint: int (cents) — midpoint of bid/ask for Kelly
+            yes_team: str — which team the YES side represents
+            midpoint: int (cents) — midpoint for predicted winner (for Kelly)
         Or None if no matching market found.
     """
     events = fetch_kalshi_events(sport)
@@ -234,50 +267,107 @@ def find_kalshi_odds(home_team, away_team, sport):
 
     for ev in events:
         markets = ev.get("markets", [])
-        if len(markets) < 2:
+        if not markets:
             continue
 
-        # Each event has 2 markets: one for each team (YES = that team wins)
-        home_market = None
-        away_market = None
+        # ── Two-market events: one ticker per team ──────────────
+        if len(markets) >= 2:
+            home_market = None
+            away_market = None
 
-        for m in markets:
+            for m in markets:
+                sub = m.get("yes_sub_title", "") or ""
+                if _teams_match(sub, home_team):
+                    home_market = m
+                elif _teams_match(sub, away_team):
+                    away_market = m
+
+            if home_market and away_market:
+                home_ticker = home_market.get("ticker", "")
+                away_ticker = away_market.get("ticker", "")
+
+                home_bid, home_ask = fetch_orderbook(home_ticker)
+                away_bid, away_ask = fetch_orderbook(away_ticker)
+
+                # If one side failed, derive from the other
+                if home_bid is None and home_ask is None and (away_bid or away_ask):
+                    home_bid = _complement_price(away_ask)
+                    home_ask = _complement_price(away_bid)
+                elif away_bid is None and away_ask is None and (home_bid or home_ask):
+                    away_bid = _complement_price(home_ask)
+                    away_ask = _complement_price(home_bid)
+
+                if home_bid is None and home_ask is None and away_bid is None and away_ask is None:
+                    return None
+
+                home_mid = _compute_midpoint(home_bid, home_ask)
+                away_mid = _compute_midpoint(away_bid, away_ask)
+
+                return {
+                    "home_yes_bid": home_bid,
+                    "home_yes_ask": home_ask,
+                    "home_midpoint": home_mid,
+                    "away_yes_bid": away_bid,
+                    "away_yes_ask": away_ask,
+                    "away_midpoint": away_mid,
+                    "home_ticker": home_ticker,
+                    "away_ticker": away_ticker,
+                    "event_title": ev.get("title", ""),
+                    "yes_team": home_market.get("yes_sub_title", ""),
+                    "midpoint": home_mid,  # backward compat: home side
+                }
+
+        # ── Single-market events: YES = one team, NO = the other ──
+        if len(markets) == 1:
+            m = markets[0]
             sub = m.get("yes_sub_title", "") or ""
-            title = ev.get("title", "") or ""
-            # Try matching by yes_sub_title first, then by event title
-            if _teams_match(sub, home_team):
-                home_market = m
-            elif _teams_match(sub, away_team):
-                away_market = m
+            ticker = m.get("ticker", "")
 
-        if home_market and away_market:
-            # Found the game — fetch orderbook for home team market
-            home_ticker = home_market.get("ticker", "")
-            away_ticker = away_market.get("ticker", "")
+            # Figure out which team is the YES side
+            yes_is_home = _teams_match(sub, home_team)
+            yes_is_away = _teams_match(sub, away_team)
 
-            home_bid, home_ask = fetch_orderbook(home_ticker)
+            if not yes_is_home and not yes_is_away:
+                # Also try matching from event title
+                title = ev.get("title", "") or ""
+                title_lower = title.lower()
+                if _normalize(home_team) in title_lower or _normalize(away_team) in title_lower:
+                    # Event matches our game but we can't tell the YES side
+                    pass
+                else:
+                    continue
 
-            if home_bid is None and home_ask is None:
-                return None
+            if yes_is_home or yes_is_away:
+                yes_bid, yes_ask = fetch_orderbook(ticker)
+                if yes_bid is None and yes_ask is None:
+                    return None
 
-            # Calculate midpoint for Kelly sizing
-            if home_bid and home_ask:
-                midpoint = (home_bid + home_ask) // 2
-            elif home_bid:
-                midpoint = home_bid
-            elif home_ask:
-                midpoint = home_ask
-            else:
-                midpoint = None
+                no_bid = _complement_price(yes_ask)
+                no_ask = _complement_price(yes_bid)
 
-            return {
-                "home_yes_bid": home_bid,
-                "home_yes_ask": home_ask,
-                "home_ticker": home_ticker,
-                "away_ticker": away_ticker,
-                "event_title": ev.get("title", ""),
-                "midpoint": midpoint,
-            }
+                if yes_is_home:
+                    home_bid, home_ask = yes_bid, yes_ask
+                    away_bid, away_ask = no_bid, no_ask
+                else:
+                    home_bid, home_ask = no_bid, no_ask
+                    away_bid, away_ask = yes_bid, yes_ask
+
+                home_mid = _compute_midpoint(home_bid, home_ask)
+                away_mid = _compute_midpoint(away_bid, away_ask)
+
+                return {
+                    "home_yes_bid": home_bid,
+                    "home_yes_ask": home_ask,
+                    "home_midpoint": home_mid,
+                    "away_yes_bid": away_bid,
+                    "away_yes_ask": away_ask,
+                    "away_midpoint": away_mid,
+                    "home_ticker": ticker if yes_is_home else "",
+                    "away_ticker": ticker if yes_is_away else "",
+                    "event_title": ev.get("title", ""),
+                    "yes_team": sub,
+                    "midpoint": home_mid,  # backward compat
+                }
 
     return None
 
@@ -285,6 +375,7 @@ def find_kalshi_odds(home_team, away_team, sport):
 def show_kalshi_odds(sport):
     """Display all available Kalshi game markets for a sport.
 
+    Shows both teams' implied probabilities for each event.
     Returns list of events for further use.
     """
     try:
@@ -309,27 +400,70 @@ def show_kalshi_odds(sport):
     for ev in events:
         title = ev.get("title", "?")
         markets = ev.get("markets", [])
-        if len(markets) < 2:
+        if not markets:
             continue
 
-        # Get team names from subtitles
-        teams = []
-        for m in markets[:2]:
-            sub = m.get("yes_sub_title", "") or m.get("ticker", "")
-            teams.append(sub)
+        if len(markets) >= 2:
+            # Two-market event: each market is a team's YES
+            team1_sub = markets[0].get("yes_sub_title", "") or markets[0].get("ticker", "")
+            team2_sub = markets[1].get("yes_sub_title", "") or markets[1].get("ticker", "")
 
-        # Fetch orderbook for first team
-        ticker0 = markets[0].get("ticker", "")
-        bid, ask = fetch_orderbook(ticker0)
+            ticker0 = markets[0].get("ticker", "")
+            ticker1 = markets[1].get("ticker", "")
 
-        team_str = " vs ".join(teams) if teams else title
-        if bid is not None or ask is not None:
-            bid_s = "%d\u00a2" % bid if bid else "?"
-            ask_s = "%d\u00a2" % ask if ask else "?"
-            print("  %s  %s bid / %s ask  (%s YES)" % (
-                chi(team_str), cok(bid_s), cok(ask_s), teams[0] if teams else "?"))
-        else:
-            print("  %s  %s" % (chi(team_str), cdim("no orders")))
+            bid0, ask0 = fetch_orderbook(ticker0)
+            bid1, ask1 = fetch_orderbook(ticker1)
+
+            # If one side has data but other doesn't, derive complement
+            if (bid0 is None and ask0 is None) and (bid1 is not None or ask1 is not None):
+                bid0 = _complement_price(ask1)
+                ask0 = _complement_price(bid1)
+            elif (bid1 is None and ask1 is None) and (bid0 is not None or ask0 is not None):
+                bid1 = _complement_price(ask0)
+                ask1 = _complement_price(bid0)
+
+            mid0 = _compute_midpoint(bid0, ask0)
+            mid1 = _compute_midpoint(bid1, ask1)
+
+            if mid0 is not None or mid1 is not None:
+                t1_s = "%s: %d\u00a2 (%d%%)" % (team1_sub, mid0, mid0) if mid0 else "%s: ?" % team1_sub
+                t2_s = "%s: %d\u00a2 (%d%%)" % (team2_sub, mid1, mid1) if mid1 else "%s: ?" % team2_sub
+                print("  %s  |  %s" % (cok(t1_s), cok(t2_s)))
+            else:
+                print("  %s  %s" % (chi(title), cdim("no orders")))
+
+        elif len(markets) == 1:
+            # Single-market event: YES = one team, NO = the other
+            m = markets[0]
+            yes_team = m.get("yes_sub_title", "") or m.get("ticker", "")
+            ticker = m.get("ticker", "")
+
+            bid, ask = fetch_orderbook(ticker)
+            mid_yes = _compute_midpoint(bid, ask)
+
+            if mid_yes is not None:
+                mid_no = 100 - mid_yes
+                # Try to extract the other team name from event title
+                no_team = "Opponent"
+                ev_title = ev.get("title", "")
+                # Typical title: "Team A vs Team B" or similar
+                for sep in [" vs ", " vs. ", " v ", " @ "]:
+                    if sep in ev_title:
+                        parts = ev_title.split(sep)
+                        if len(parts) == 2:
+                            # Figure out which part is the YES team
+                            p0, p1 = parts[0].strip(), parts[1].strip()
+                            if _teams_match(yes_team, p0) or _normalize(yes_team) in _normalize(p0):
+                                no_team = p1
+                            else:
+                                no_team = p0
+                        break
+
+                t1_s = "%s: %d\u00a2 (%d%%)" % (yes_team, mid_yes, mid_yes)
+                t2_s = "%s: %d\u00a2 (%d%%)" % (no_team, mid_no, mid_no)
+                print("  %s  |  %s" % (cok(t1_s), cok(t2_s)))
+            else:
+                print("  %s  %s" % (chi(title), cdim("no orders")))
 
     div(70)
     return events

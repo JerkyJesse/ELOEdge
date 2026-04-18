@@ -65,6 +65,9 @@ MODEL_REGISTRY = {
     # Tier 3 addition: Information & physics
     "benford":          {"default": True,  "tier": 3, "desc": "Benford's Law (scoring pattern anomaly)"},
 
+    # Tier 3 addition: Prophetic cycle timing
+    "moedim":           {"default": True,  "tier": 3, "desc": "Moedim prophetic cycle timing system"},
+
     # Data enrichment models
     "weather":          {"default": True,  "tier": 6, "desc": "Weather impact (temperature, wind)"},
     "odds":             {"default": False, "tier": 6, "desc": "Market odds / CLV tracking"},
@@ -303,6 +306,9 @@ MODEL_HYPERPARAMS = {
     "evt": {
         "evt_threshold_quantile":  {"type": "float", "default": 0.90, "values": [0.80, 0.85, 0.90, 0.95]},
         "evt_min_exceedances":     {"type": "int",   "default": 5,    "values": [3, 5, 8, 10]},
+    },
+    "moedim": {
+        "moedim_tolerance":            {"type": "int",   "default": 3,    "values": [1, 2, 3, 5]},
     },
     "meta_bma": {
         "bma_decay":               {"type": "float", "default": 0.99, "values": [0.95, 0.97, 0.99, 1.0]},

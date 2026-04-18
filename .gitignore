@@ -1,3 +1,7 @@
+# ── Cross-sport shared wallet (runtime) ──
+portfolio_settings.json
+cash_transactions.csv
+
 # ── Runtime state files (generated, not source) ──
 *_elo_ratings.json
 *_elo_settings.json
@@ -26,6 +30,7 @@ predicts_lots.csv
 *_genetic_results.csv
 *_optimization_log.txt
 *_master_opt_summary.json
+*_backtest_state.json
 
 # ── Model artifacts ──
 *_lgbm_model.txt

@@ -9,7 +9,12 @@ from collections import defaultdict
 import numpy as np
 import pandas as pd
 import xgboost as xgb
-from tqdm import tqdm
+try:
+    from tqdm import tqdm
+except ImportError:
+    def tqdm(iterable=None, *a, **kw):
+        return iterable if iterable is not None else range(0)
+    tqdm.write = print
 
 from config import GAMES_FILE, load_elo_settings
 from elo_model import NBAElo
@@ -44,6 +49,7 @@ class TeamTracker:
         self.consecutive_home = defaultdict(int)
         self.game_number = defaultdict(int)
         self.opponent_elos = defaultdict(list)
+        self.was_home = defaultdict(list)  # per-game is_home for B2B travel detection
 
     def get_features(self, team, game_date=None, is_home=True):
         """Return rolling features for a team. All based on past data only."""
@@ -113,12 +119,17 @@ class TeamTracker:
         opp_elos = self.opponent_elos.get(team, [])
         avg_opp_elo = float(np.mean(opp_elos[-10:])) if len(opp_elos) >= 3 else 1500.0
 
-        # Margin trend (slope over last N games)
+        # Margin trend (slope over last N games) -- vectorized direct formula
         margin_trend = 0.0
         if len(margins) >= 5:
             recent_m = margins[-WINDOW:]
-            x = np.arange(len(recent_m))
-            margin_trend = float(np.polyfit(x, recent_m, 1)[0])
+            n_mt = len(recent_m)
+            x_mt = np.arange(n_mt, dtype=np.float64)
+            x_mean = (n_mt - 1) / 2.0
+            m_arr = np.asarray(recent_m, dtype=np.float64)
+            m_mean = m_arr.mean()
+            xd = x_mt - x_mean
+            margin_trend = float(np.dot(xd, m_arr - m_mean) / max(np.dot(xd, xd), 1e-10))
 
         # Ultra-recent form (last 3 games)
         last3_wp = float(np.mean(results[-3:])) if len(results) >= 3 else 0.5
@@ -145,27 +156,36 @@ class TeamTracker:
         if len(margins) >= 6:
             m = margins[-WINDOW:]
             if len(m) >= 6:
-                m1 = np.array(m[:-1], dtype=float)
-                m2 = np.array(m[1:], dtype=float)
-                std1 = np.std(m1)
-                std2 = np.std(m2)
-                if std1 > 0 and std2 > 0:
-                    _corr = float(np.corrcoef(m1, m2)[0, 1])
-                    momentum_autocorr = _corr if not np.isnan(_corr) else 0.0
+                a1 = np.asarray(m[:-1], dtype=np.float64)
+                a2 = np.asarray(m[1:], dtype=np.float64)
+                a1d = a1 - a1.mean()
+                a2d = a2 - a2.mean()
+                denom = np.sqrt(np.dot(a1d, a1d) * np.dot(a2d, a2d))
+                momentum_autocorr = float(np.dot(a1d, a2d) / denom) if denom > 1e-10 else 0.0
 
-        # Defensive trend: is defense improving or degrading?
+        # Defensive trend: is defense improving or degrading? -- vectorized
         def_trend = 0.0
         if len(allowed) >= 5:
             recent_a = allowed[-WINDOW:]
-            x = np.arange(len(recent_a))
-            def_trend = float(np.polyfit(x, recent_a, 1)[0])  # negative = defense improving
+            n_dt = len(recent_a)
+            x_dt = np.arange(n_dt, dtype=np.float64)
+            x_mean_dt = (n_dt - 1) / 2.0
+            a_arr = np.asarray(recent_a, dtype=np.float64)
+            a_mean = a_arr.mean()
+            xd_dt = x_dt - x_mean_dt
+            def_trend = float(np.dot(xd_dt, a_arr - a_mean) / max(np.dot(xd_dt, xd_dt), 1e-10))  # negative = defense improving
 
-        # Scoring trend: is offense improving or degrading?
+        # Scoring trend: is offense improving or degrading? -- vectorized
         off_trend = 0.0
         if len(scored) >= 5:
             recent_s = scored[-WINDOW:]
-            x = np.arange(len(recent_s))
-            off_trend = float(np.polyfit(x, recent_s, 1)[0])  # positive = offense improving
+            n_ot = len(recent_s)
+            x_ot = np.arange(n_ot, dtype=np.float64)
+            x_mean_ot = (n_ot - 1) / 2.0
+            s_arr = np.asarray(recent_s, dtype=np.float64)
+            s_mean = s_arr.mean()
+            xd_ot = x_ot - x_mean_ot
+            off_trend = float(np.dot(xd_ot, s_arr - s_mean) / max(np.dot(xd_ot, xd_ot), 1e-10))  # positive = offense improving
 
         # Win% vs expected from margins (close game luck)
         # Teams winning close games at >60% are "clutch lucky" and will regress
@@ -185,6 +205,55 @@ class TeamTracker:
                 opp_w = opp_w / 1500.0  # normalize around 1.0
                 if opp_w.sum() > 0:
                     sos_adj_wp = float(np.average(res_w, weights=opp_w))
+
+        # Rest quality (quadratic): optimal rest = 2 days for NBA
+        # rest=1 (B2B) = bad, rest=2 (1 day off) = optimal, rest=4+ = rusty
+        # Formula: 1.0 - (rest - 2)^2 / 4, clamped to [-1, 1]
+        rest_quality = 0.0
+        if rest is not None:
+            rest_quality = max(-1.0, min(1.0, 1.0 - (rest - 2.0) ** 2 / 4.0))
+
+        # --- NEW PREDICTION EDGE FEATURES ---
+
+        # 1. Pythagorean Regression Risk: sample-size weighted regression signal
+        games_played = n
+        pyth_regression_risk = abs(pyth_residual) * min(1.0, games_played / 40.0)
+
+        # 2. Back-to-Back with Travel: B2B is worse when team traveled
+        was_home_list = self.was_home.get(team, [])
+        if was_home_list and len(was_home_list) >= 1:
+            last_was_home = was_home_list[-1]
+            _is_b2b = (rest is not None and rest <= 1)
+            b2b_travel = 1.0 if (_is_b2b and last_was_home != is_home) else 0.0
+        else:
+            b2b_travel = 0.0
+
+        # 3. Win Streak Momentum: weighted recent form
+        if len(results) >= 3:
+            last3 = [1.0 if r >= 0.5 else -1.0 for r in results[-3:]]
+            last5 = [1.0 if r >= 0.5 else -1.0 for r in results[-5:]] if len(results) >= 5 else last3
+            streak_momentum = sum(last3) / 3.0 * 0.6 + sum(last5) / max(len(last5), 1) * 0.4
+        else:
+            streak_momentum = 0.0
+
+        # 4. Home/Away Split: how much better at home vs away
+        ha_home_results = self.home_results.get(team, [])
+        ha_away_results = self.away_results.get(team, [])
+        ha_home_wp = sum(ha_home_results) / max(len(ha_home_results), 1)
+        ha_away_wp = sum(ha_away_results) / max(len(ha_away_results), 1)
+        home_away_split = ha_home_wp - ha_away_wp
+
+        # 5. Scoring Variance Ratio: ratio of offensive to defensive consistency
+        off_scores_list = self.points_scored.get(team, [])
+        def_scores_list = self.points_allowed.get(team, [])
+        if len(off_scores_list) >= 5:
+            off_recent = off_scores_list[-10:]
+            def_recent = def_scores_list[-10:] if def_scores_list else []
+            off_var = float(np.std(off_recent)) if off_recent else 1.0
+            def_var = float(np.std(def_recent)) if def_recent else 1.0
+            variance_ratio = off_var / max(def_var, 0.1)
+        else:
+            variance_ratio = 1.0
 
         return {
             "ppg": ppg,
@@ -219,6 +288,13 @@ class TeamTracker:
             "def_trend": def_trend,
             "off_trend": off_trend,
             "sos_adj_wp": sos_adj_wp,
+            "rest_quality": rest_quality,
+            # New prediction edge features
+            "pyth_regression_risk": pyth_regression_risk,
+            "b2b_travel": b2b_travel,
+            "streak_momentum": streak_momentum,
+            "home_away_split": home_away_split,
+            "variance_ratio": variance_ratio,
         }
 
     def update(self, team, pts_scored, pts_allowed, won, game_date=None,
@@ -244,6 +320,10 @@ class TeamTracker:
         self.opponent_elos[team].append(opp_elo)
         if len(self.opponent_elos[team]) > 25:
             self.opponent_elos[team] = self.opponent_elos[team][-25:]
+        # Track per-game home/away for B2B travel detection
+        self.was_home[team].append(is_home)
+        if len(self.was_home[team]) > 25:
+            self.was_home[team] = self.was_home[team][-25:]
         # Keep last 25 for flexibility (we slice to WINDOW when reading)
         for store in (self.points_scored, self.points_allowed,
                       self.results, self.margins):
@@ -437,6 +517,30 @@ def build_game_features(home_feats, away_feats, elo_prob, elo_diff,
         "h_sos_adj_wp": home_feats.get("sos_adj_wp", 0.5),
         "a_sos_adj_wp": away_feats.get("sos_adj_wp", 0.5),
         "sos_adj_wp_diff": home_feats.get("sos_adj_wp", 0.5) - away_feats.get("sos_adj_wp", 0.5),
+        # Rest quality (quadratic: optimal rest = 1 day for NBA)
+        "rest_quality_h": home_feats.get("rest_quality", 0.0),
+        "rest_quality_a": away_feats.get("rest_quality", 0.0),
+        "rest_quality_diff": home_feats.get("rest_quality", 0.0) - away_feats.get("rest_quality", 0.0),
+        # Pythagorean regression risk (sample-size weighted)
+        "h_pyth_regression": home_feats.get("pyth_regression_risk", 0.0),
+        "a_pyth_regression": away_feats.get("pyth_regression_risk", 0.0),
+        "pyth_regression_diff": home_feats.get("pyth_regression_risk", 0.0) - away_feats.get("pyth_regression_risk", 0.0),
+        # Back-to-back with travel
+        "h_b2b_travel": home_feats.get("b2b_travel", 0.0),
+        "a_b2b_travel": away_feats.get("b2b_travel", 0.0),
+        "b2b_travel_diff": home_feats.get("b2b_travel", 0.0) - away_feats.get("b2b_travel", 0.0),
+        # Win streak momentum (weighted recent form)
+        "h_streak_momentum": home_feats.get("streak_momentum", 0.0),
+        "a_streak_momentum": away_feats.get("streak_momentum", 0.0),
+        "streak_momentum_diff": home_feats.get("streak_momentum", 0.0) - away_feats.get("streak_momentum", 0.0),
+        # Home/away split
+        "h_ha_split": home_feats.get("home_away_split", 0.0),
+        "a_ha_split": away_feats.get("home_away_split", 0.0),
+        "ha_split_diff": home_feats.get("home_away_split", 0.0) - away_feats.get("home_away_split", 0.0),
+        # Scoring variance ratio (offense vs defense consistency)
+        "h_var_ratio": home_feats.get("variance_ratio", 1.0),
+        "a_var_ratio": away_feats.get("variance_ratio", 1.0),
+        "var_ratio_diff": home_feats.get("variance_ratio", 1.0) - away_feats.get("variance_ratio", 1.0),
     }
 
 
@@ -482,11 +586,23 @@ FEATURE_COLS = [
     "h_def_trend", "a_def_trend", "def_trend_diff",
     "h_off_trend", "a_off_trend", "off_trend_diff",
     "h_sos_adj_wp", "a_sos_adj_wp", "sos_adj_wp_diff",
+    # Rest quality (quadratic: optimal rest = 1 day)
+    "rest_quality_h", "rest_quality_a", "rest_quality_diff",
+    # Pythagorean regression risk
+    "h_pyth_regression", "a_pyth_regression", "pyth_regression_diff",
+    # Back-to-back with travel
+    "h_b2b_travel", "a_b2b_travel", "b2b_travel_diff",
+    # Win streak momentum
+    "h_streak_momentum", "a_streak_momentum", "streak_momentum_diff",
+    # Home/away split
+    "h_ha_split", "a_ha_split", "ha_split_diff",
+    # Scoring variance ratio
+    "h_var_ratio", "a_var_ratio", "var_ratio_diff",
 ]
 
 
 def run_enhanced_backtest(csv_file=GAMES_FILE, min_train=200, retrain_every=50,
-                          elo_weight=0.5, label="enhanced", time_decay=False):
+                          elo_weight=0.70, label="enhanced", time_decay=False):
     """
     Walk-forward backtest with XGBoost ensemble.
     - First min_train games: Elo-only predictions (XGB needs training data).
@@ -532,6 +648,7 @@ def run_enhanced_backtest(csv_file=GAMES_FILE, min_train=200, retrain_every=50,
     correct = 0
     xgb_model = None
     xgb_predictions = 0
+    _pred_buffer = np.zeros((1, len(FEATURE_COLS)), dtype=np.float32)
 
     for idx, row in tqdm(games.iterrows(), total=len(games),
                          desc="  Enhanced backtest", leave=True):
@@ -566,8 +683,9 @@ def run_enhanced_backtest(csv_file=GAMES_FILE, min_train=200, retrain_every=50,
 
         # Make prediction
         if xgb_model is not None and game_features is not None:
-            fvec = np.array([[game_features[c] for c in FEATURE_COLS]])
-            xgb_prob = float(xgb_model.predict(xgb.DMatrix(fvec,
+            for j, c in enumerate(FEATURE_COLS):
+                _pred_buffer[0, j] = game_features.get(c, 0.0)
+            xgb_prob = float(xgb_model.predict(xgb.DMatrix(_pred_buffer,
                              feature_names=FEATURE_COLS))[0])
             # Ensemble: weighted average of Elo and XGBoost
             if time_decay:
@@ -767,7 +885,7 @@ def load_enhanced_model(filename=ENHANCED_MODEL_FILE):
 
 if __name__ == "__main__":
     import sys
-    ew = float(sys.argv[1]) if len(sys.argv) > 1 else 0.7
+    ew = float(sys.argv[1]) if len(sys.argv) > 1 else 0.70
     result = run_enhanced_backtest(elo_weight=ew, label="elo_w=%.1f" % ew)
     if result and result.get("xgb_model"):
         save_enhanced_model(result)

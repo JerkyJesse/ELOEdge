@@ -10,7 +10,12 @@ from datetime import timedelta
 import numpy as np
 import pandas as pd
 import xgboost as xgb
-from tqdm import tqdm
+try:
+    from tqdm import tqdm
+except ImportError:
+    def tqdm(iterable=None, *a, **kw):
+        return iterable if iterable is not None else range(0)
+    tqdm.write = print
 
 from config import GAMES_FILE, load_elo_settings
 from elo_model import MLBElo
@@ -48,6 +53,8 @@ class TeamTracker:
         self.consecutive_home = defaultdict(int)
         self.game_number = defaultdict(int)
         self.opponent_elos = defaultdict(list)
+        self.games_today = defaultdict(int)       # games played on current date (doubleheader detection)
+        self.last_game_date_str = {}              # team -> last game date string (for same-day check)
 
     def get_features(self, team, game_date=None, is_home=True):
         """Return rolling features for a team. All based on past data only."""
@@ -123,12 +130,17 @@ class TeamTracker:
         opp_elos = self.opponent_elos.get(team, [])
         avg_opp_elo = float(np.mean(opp_elos[-10:])) if len(opp_elos) >= 3 else 1500.0
 
-        # Margin trend (slope over last N games)
+        # Margin trend (slope over last N games) -- vectorized direct formula
         margin_trend = 0.0
         if len(margins) >= 5:
             recent_m = margins[-WINDOW:]
-            x = np.arange(len(recent_m))
-            margin_trend = float(np.polyfit(x, recent_m, 1)[0])
+            n_mt = len(recent_m)
+            x_mt = np.arange(n_mt, dtype=np.float64)
+            x_mean = (n_mt - 1) / 2.0
+            m_arr = np.asarray(recent_m, dtype=np.float64)
+            m_mean = m_arr.mean()
+            xd = x_mt - x_mean
+            margin_trend = float(np.dot(xd, m_arr - m_mean) / max(np.dot(xd, xd), 1e-10))
 
         # Ultra-recent form (last 3 games)
         last3_wp = float(np.mean(results[-3:])) if len(results) >= 3 else 0.5
@@ -138,6 +150,43 @@ class TeamTracker:
         # Pythagorean residual: actual win% minus expected (luck factor)
         # Positive = team is "lucky" and due for regression
         pyth_residual = win_pct - pyth
+
+        # Pythagorean regression risk: sample-size weighted residual
+        # Increases confidence in the regression signal as sample size grows
+        games_played = len(self.results.get(team, []))
+        pyth_regression_risk = abs(pyth_residual) * min(1.0, games_played / 80.0)
+
+        # Pitcher fatigue index: approximate workload from recent game density
+        # Uses game_dates to count games in last 14 days as a proxy for rotation stress
+        pitcher_fatigue = 0.0
+        if game_date is not None:
+            recent_dates = self.game_dates.get(team, [])
+            cutoff_14 = game_date - timedelta(days=14)
+            recent_starts = sum(1 for d in recent_dates if d >= cutoff_14)
+            pitcher_fatigue = min(1.0, max(0, recent_starts - 2) / 3.0)  # 0 if <=2 starts, ramps to 1 at 5
+
+        # Win streak momentum: weighted blend of last 3 and last 5 results
+        if len(results) >= 3:
+            last3 = [1 if r >= 0.5 else -1 for r in results[-3:]]
+            last5 = [1 if r >= 0.5 else -1 for r in results[-5:]] if len(results) >= 5 else last3
+            streak_momentum = sum(last3) / 3.0 * 0.6 + sum(last5) / max(len(last5), 1) * 0.4
+        else:
+            streak_momentum = 0.0
+
+        # Home/away split differential: how much better/worse at home vs away
+        home_split_res = self.home_results.get(team, [])
+        away_split_res = self.away_results.get(team, [])
+        home_split_wp = sum(home_split_res) / max(len(home_split_res), 1) if len(home_split_res) >= 3 else 0.5
+        away_split_wp = sum(away_split_res) / max(len(away_split_res), 1) if len(away_split_res) >= 3 else 0.5
+        home_away_split = home_split_wp - away_split_wp  # positive = much better at home
+
+        # Opponent quality trend: are recent opponents getting harder or easier?
+        if len(opp_elos) >= 6:
+            recent_opp_elos = sum(opp_elos[-3:]) / 3.0
+            older_opp_elos = sum(opp_elos[-6:-3]) / 3.0
+            opp_difficulty_trend = (recent_opp_elos - older_opp_elos) / 100.0  # normalized
+        else:
+            opp_difficulty_trend = 0.0
 
         # Recency-weighted scoring (exponential decay, half-life ~5 games)
         decay_ppg = rpg
@@ -155,27 +204,36 @@ class TeamTracker:
         if len(margins) >= 6:
             m = margins[-WINDOW:]
             if len(m) >= 6:
-                m1 = np.array(m[:-1], dtype=float)
-                m2 = np.array(m[1:], dtype=float)
-                std1 = np.std(m1)
-                std2 = np.std(m2)
-                if std1 > 0 and std2 > 0:
-                    _corr = float(np.corrcoef(m1, m2)[0, 1])
-                    momentum_autocorr = _corr if not np.isnan(_corr) else 0.0
+                a1 = np.asarray(m[:-1], dtype=np.float64)
+                a2 = np.asarray(m[1:], dtype=np.float64)
+                a1d = a1 - a1.mean()
+                a2d = a2 - a2.mean()
+                denom = np.sqrt(np.dot(a1d, a1d) * np.dot(a2d, a2d))
+                momentum_autocorr = float(np.dot(a1d, a2d) / denom) if denom > 1e-10 else 0.0
 
-        # Defensive trend: is defense improving or degrading?
+        # Defensive trend: is defense improving or degrading? -- vectorized
         def_trend = 0.0
         if len(allowed) >= 5:
             recent_a = allowed[-WINDOW:]
-            x = np.arange(len(recent_a))
-            def_trend = float(np.polyfit(x, recent_a, 1)[0])  # negative = defense improving
+            n_dt = len(recent_a)
+            x_dt = np.arange(n_dt, dtype=np.float64)
+            x_mean_dt = (n_dt - 1) / 2.0
+            a_arr = np.asarray(recent_a, dtype=np.float64)
+            a_mean = a_arr.mean()
+            xd_dt = x_dt - x_mean_dt
+            def_trend = float(np.dot(xd_dt, a_arr - a_mean) / max(np.dot(xd_dt, xd_dt), 1e-10))  # negative = defense improving
 
-        # Scoring trend: is offense improving or degrading?
+        # Scoring trend: is offense improving or degrading? -- vectorized
         off_trend = 0.0
         if len(scored) >= 5:
             recent_s = scored[-WINDOW:]
-            x = np.arange(len(recent_s))
-            off_trend = float(np.polyfit(x, recent_s, 1)[0])  # positive = offense improving
+            n_ot = len(recent_s)
+            x_ot = np.arange(n_ot, dtype=np.float64)
+            x_mean_ot = (n_ot - 1) / 2.0
+            s_arr = np.asarray(recent_s, dtype=np.float64)
+            s_mean = s_arr.mean()
+            xd_ot = x_ot - x_mean_ot
+            off_trend = float(np.dot(xd_ot, s_arr - s_mean) / max(np.dot(xd_ot, xd_ot), 1e-10))  # positive = offense improving
 
         # SOS-adjusted win%: win% weighted by opponent strength
         sos_adj_wp = win_pct
@@ -189,6 +247,22 @@ class TeamTracker:
                 opp_w = opp_w / 1500.0  # normalize around 1.0
                 if opp_w.sum() > 0:
                     sos_adj_wp = float(np.average(res_w, weights=opp_w))
+
+        # Rest quality: U-shaped curve (1 day rest is optimal, 0 and 3+ worse)
+        # Quadratic: rest_quality = -((rest - 1)^2) / 4, clamped to [-1, 0]
+        # 0 days rest -> -0.25, 1 day -> 0, 2 days -> -0.25, 3 days -> -1.0, 4+ -> -1.0
+        rest_quality = 0.0
+        if rest is not None:
+            rest_quality = -((rest - 1.0) ** 2) / 4.0
+            rest_quality = max(rest_quality, -1.0)
+
+        # Doubleheader game 2 detection: did this team already play today?
+        doubleheader_g2 = 0.0
+        if game_date is not None:
+            date_str = str(game_date.date()) if hasattr(game_date, 'date') else str(game_date)[:10]
+            last_date_str = self.last_game_date_str.get(team)
+            if last_date_str == date_str:
+                doubleheader_g2 = 1.0
 
         return {
             "ppg": rpg,
@@ -223,6 +297,15 @@ class TeamTracker:
             "def_trend": def_trend,
             "off_trend": off_trend,
             "sos_adj_wp": sos_adj_wp,
+            # Rest quality + doubleheader
+            "rest_quality": rest_quality,
+            "doubleheader_g2": doubleheader_g2,
+            # New prediction edge features
+            "pyth_regression_risk": pyth_regression_risk,
+            "pitcher_fatigue": pitcher_fatigue,
+            "streak_momentum": streak_momentum,
+            "home_away_split": home_away_split,
+            "opp_difficulty_trend": opp_difficulty_trend,
         }
 
     def update(self, team, pts_scored, pts_allowed, won, game_date=None,
@@ -279,6 +362,9 @@ class TeamTracker:
                 self.blowout_results[team] = self.blowout_results[team][-15:]
         if game_date is not None:
             self.last_date[team] = game_date
+            # Track date string for doubleheader detection
+            date_str = str(game_date.date()) if hasattr(game_date, 'date') else str(game_date)[:10]
+            self.last_game_date_str[team] = date_str
 
 
 def compute_team_stats(player_df, adv_df=None):
@@ -441,6 +527,28 @@ def build_game_features(home_feats, away_feats, elo_prob, elo_diff,
         "h_sos_adj_wp": home_feats.get("sos_adj_wp", 0.5),
         "a_sos_adj_wp": away_feats.get("sos_adj_wp", 0.5),
         "sos_adj_wp_diff": home_feats.get("sos_adj_wp", 0.5) - away_feats.get("sos_adj_wp", 0.5),
+        # Rest quality (U-shaped: 1 day optimal) + doubleheader detection
+        "h_rest_quality": home_feats.get("rest_quality", 0.0),
+        "a_rest_quality": away_feats.get("rest_quality", 0.0),
+        "rest_quality_diff": home_feats.get("rest_quality", 0.0) - away_feats.get("rest_quality", 0.0),
+        "doubleheader_h": home_feats.get("doubleheader_g2", 0.0),
+        "doubleheader_a": away_feats.get("doubleheader_g2", 0.0),
+        # New prediction edge features
+        "h_pyth_regression": home_feats.get("pyth_regression_risk", 0.0),
+        "a_pyth_regression": away_feats.get("pyth_regression_risk", 0.0),
+        "pyth_regression_diff": home_feats.get("pyth_regression_risk", 0.0) - away_feats.get("pyth_regression_risk", 0.0),
+        "h_pitcher_fatigue": home_feats.get("pitcher_fatigue", 0.0),
+        "a_pitcher_fatigue": away_feats.get("pitcher_fatigue", 0.0),
+        "pitcher_fatigue_diff": home_feats.get("pitcher_fatigue", 0.0) - away_feats.get("pitcher_fatigue", 0.0),
+        "h_streak_momentum": home_feats.get("streak_momentum", 0.0),
+        "a_streak_momentum": away_feats.get("streak_momentum", 0.0),
+        "streak_momentum_diff": home_feats.get("streak_momentum", 0.0) - away_feats.get("streak_momentum", 0.0),
+        "h_ha_split": home_feats.get("home_away_split", 0.0),
+        "a_ha_split": away_feats.get("home_away_split", 0.0),
+        "ha_split_diff": home_feats.get("home_away_split", 0.0) - away_feats.get("home_away_split", 0.0),
+        "h_opp_trend": home_feats.get("opp_difficulty_trend", 0.0),
+        "a_opp_trend": away_feats.get("opp_difficulty_trend", 0.0),
+        "opp_trend_diff": home_feats.get("opp_difficulty_trend", 0.0) - away_feats.get("opp_difficulty_trend", 0.0),
     }
 
 
@@ -484,6 +592,15 @@ FEATURE_COLS = [
     "h_def_trend", "a_def_trend", "def_trend_diff",
     "h_off_trend", "a_off_trend", "off_trend_diff",
     "h_sos_adj_wp", "a_sos_adj_wp", "sos_adj_wp_diff",
+    # Rest quality + doubleheader
+    "h_rest_quality", "a_rest_quality", "rest_quality_diff",
+    "doubleheader_h", "doubleheader_a",
+    # New prediction edge features
+    "h_pyth_regression", "a_pyth_regression", "pyth_regression_diff",
+    "h_pitcher_fatigue", "a_pitcher_fatigue", "pitcher_fatigue_diff",
+    "h_streak_momentum", "a_streak_momentum", "streak_momentum_diff",
+    "h_ha_split", "a_ha_split", "ha_split_diff",
+    "h_opp_trend", "a_opp_trend", "opp_trend_diff",
 ]
 
 
@@ -544,6 +661,7 @@ def run_enhanced_backtest(csv_file=GAMES_FILE, min_train=200, retrain_every=50,
     correct = 0
     xgb_model = None
     xgb_predictions = 0
+    _pred_buffer = np.zeros((1, len(FEATURE_COLS)), dtype=np.float32)
     prev_season = None
 
     for idx, row in tqdm(games.iterrows(), total=len(games),
@@ -605,8 +723,9 @@ def run_enhanced_backtest(csv_file=GAMES_FILE, min_train=200, retrain_every=50,
 
         # Make prediction
         if xgb_model is not None and game_features is not None:
-            fvec = np.array([[game_features[c] for c in FEATURE_COLS]])
-            xgb_prob = float(xgb_model.predict(xgb.DMatrix(fvec,
+            for j, c in enumerate(FEATURE_COLS):
+                _pred_buffer[0, j] = game_features.get(c, 0.0)
+            xgb_prob = float(xgb_model.predict(xgb.DMatrix(_pred_buffer,
                              feature_names=FEATURE_COLS))[0])
             # Ensemble: weighted average of Elo and XGBoost
             if time_decay:

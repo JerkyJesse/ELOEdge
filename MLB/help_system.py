@@ -13,6 +13,9 @@ def show_help(topic=""):
         "bayesian","purgedcv","cpcv","pbo","montecarlo","rollingcal",
         "kelly","sliding","convergence","conformal","betacal","shap",
         "enhanced","advanced","autoopt","superopt","singleopt",
+        "deposit","withdraw","portfolio",
+        "mega","odds","weather","kalshi","injuries","balance","tomorrow",
+        "advstats","statcast",
     }
     if topic and topic not in HELP_TOPICS:
         from color_helpers import cwarn
@@ -73,12 +76,48 @@ def show_help(topic=""):
             ("invert",             "Flip side of open position (no accounting change)"),
             ("autoresolve",        "Manually run auto-settle on finished games"),
             ("autoresolve on/off", "Toggle automatic resolve during 'live'"),
+            ("deposit",            "Deposit cash to shared bankroll (all sports)"),
+            ("withdraw",           "Withdraw cash from shared bankroll"),
+            ("portfolio",          "Cross-sport portfolio view (all 4 sports)"),
             ("settings",           "Show current Elo parameters + Platt scaler status"),
-            ("set k=32",           "Change settings (k, home_adv, player_boost, etc.)"),
+            ("set k=3",            "Change settings (k, home_adv, player_boost, etc.)"),
             ("help [topic]",       "This help screen (or detailed help on one command)"),
             ("quit",               "Save & exit"),
         ]
         for cmd, desc in cmds:
+            print("  %-22s %s" % (chi(cmd), desc))
+        print()
+        print("  MEGA-ENSEMBLE  (35-model stacking system)")
+        div(W)
+        mega_cmds = [
+            ("mega",               "Run full 35-model mega-ensemble backtest"),
+            ("mega optimize",      "7-phase per-model optimization (54 hyperparams, 1-4hr)"),
+            ("mega quick",         "Quick grid search (Phase 1 only, ~15-30min)"),
+            ("mega tune",          "Per-model solo optimization"),
+            ("mega tournament",    "Head-to-head model tournament (Phase 2 only)"),
+            ("mega ablation",      "Single-model ablation study (contribution test)"),
+            ("mega models",        "Show all 35 models with ON/OFF status by tier"),
+            ("mega on/off <model>","Enable/disable individual model (or 'mega on all')"),
+            ("mega settings",      "Show all mega-ensemble parameter values"),
+            ("mega set <p>=<v>",   "Set mega param (e.g., mega set adj=0.10, meta=ridge)"),
+        ]
+        for cmd, desc in mega_cmds:
+            print("  %-22s %s" % (chi(cmd), desc))
+        print()
+        print("  DATA & ENRICHMENT")
+        div(W)
+        data_cmds = [
+            ("odds",               "Show current betting odds for today's MLB games"),
+            ("weather",            "Show weather report for home ballpark (wind, temp, humidity)"),
+            ("injuries",           "Show injury report with Elo impact (pitcher emphasis)"),
+            ("injuries set",       "Manually set players OUT (injuries set <team> <p1>, <p2>)"),
+            ("kalshi",             "Toggle Kalshi prediction market auto-integration"),
+            ("kalshi odds",        "Show Kalshi market odds for today's games"),
+            ("advstats/statcast",  "Show Statcast/FanGraphs rankings (xwOBA, xERA, barrel rate)"),
+            ("balance",            "Show current account balance and cash flow"),
+            ("tomorrow",           "Generate HTML prediction table for tomorrow's MLB games"),
+        ]
+        for cmd, desc in data_cmds:
             print("  %-22s %s" % (chi(cmd), desc))
         print()
         print("  ADVANCED BACKTESTING & VALIDATION  (type 'help advanced' for details)")
@@ -300,4 +339,97 @@ def show_help(topic=""):
                 notes=["backtest -> fits Platt scaler, reports calibrated Brier",
                        "grid/genetic -> objective is -(logloss*8 + brier*40)",
                        "results -> show best parameters found so far"])
+    elif topic == "deposit":
+        section("deposit", "deposit",
+                "Add funds to the shared cross-sport bankroll.",
+                steps=["Enter dollar amount to deposit",
+                       "Optionally add a note for the transaction",
+                       "Balance updates across all 4 sports immediately"],
+                notes=["Shared bankroll: deposit once, trade any sport",
+                       "Transaction logged with timestamp in cash_transactions.csv",
+                       "Use 'balance' to see current balance and cash flow summary"])
+    elif topic == "withdraw":
+        section("withdraw", "withdraw",
+                "Remove funds from the shared cross-sport bankroll.",
+                steps=["See current available balance",
+                       "Enter dollar amount to withdraw",
+                       "Optionally add a note for the transaction"],
+                notes=["Cannot withdraw more than current available balance",
+                       "Balance accounts for all open positions across all sports",
+                       "Transaction logged with timestamp in cash_transactions.csv"])
+    elif topic == "portfolio":
+        section("portfolio", "portfolio",
+                "View cross-sport portfolio showing all 4 sports at once.",
+                notes=["Shows per-sport: open positions, realized P&L, unrealized P&L, win rate",
+                       "Shows total shared balance, total P&L, overall ROI",
+                       "Shows deposit/withdrawal history summary",
+                       "Can also run standalone: python portfolio.py"])
+    elif topic == "mega":
+        section("mega", "mega  OR  mega optimize  OR  mega quick",
+                "35-model mega-ensemble backtest and optimization system.",
+                steps=["mega           - Run full ensemble backtest (all enabled models)",
+                       "mega optimize  - 7-phase per-model optimization (54 hyperparams)",
+                       "mega quick     - Quick grid search (Phase 1 only)",
+                       "mega tune      - Per-model solo optimization",
+                       "mega tournament - Head-to-head model comparison tournament",
+                       "mega ablation  - Test each model's individual contribution"],
+                notes=["35 models across 8 tiers: Elo, XGBoost, HMM, Kalman, LightGBM, LSTM, etc.",
+                       "Meta-learner stacks model outputs via Ridge/Logistic/XGBoost",
+                       "Use 'mega models' to see ON/OFF status per model",
+                       "Use 'mega on/off <model>' to enable/disable (e.g., mega off lstm)",
+                       "Use 'mega set <param>=<value>' to change hyperparams (e.g., mega set adj=0.10)",
+                       "Use 'mega settings' to view all 54 tunable parameters"],
+                examples=["mega", "mega optimize", "mega quick", "mega models", "mega set adj=0.08"])
+    elif topic == "odds":
+        section("odds", "odds",
+                "Show current betting odds for today's MLB games.",
+                notes=["Fetches live odds from The Odds API (requires API key in config)",
+                       "Shows moneyline, spread, and over/under from major books",
+                       "Odds used as features in XGBoost ensemble and mega-ensemble",
+                       "Free tier: 500 requests/month (sufficient for daily use)"])
+    elif topic == "weather":
+        section("weather", "weather",
+                "Show weather report for home ballpark.",
+                notes=["MLB is played outdoors — weather directly impacts game outcomes",
+                       "Wind speed/direction affects home runs; temperature affects ball flight",
+                       "Fetches data from Open-Meteo (free, no API key required)",
+                       "Weather features fed into XGBoost and mega-ensemble models"])
+    elif topic == "kalshi":
+        section("kalshi", "kalshi  OR  kalshi on  OR  kalshi off  OR  kalshi odds",
+                "Kalshi prediction market integration.",
+                notes=["kalshi        - Toggle auto_kalshi setting on/off",
+                       "kalshi on     - Enable automatic Kalshi odds fetching",
+                       "kalshi off    - Disable Kalshi odds fetching",
+                       "kalshi odds   - Show current Kalshi market odds for today",
+                       "When enabled, Kalshi odds are shown alongside model predictions",
+                       "Requires Kalshi API access (see kalshi.py for setup)"])
+    elif topic == "injuries":
+        section("injuries", "injuries  OR  injuries set <team> <player1>, <player2>",
+                "Show injury report with Elo impact estimates.",
+                notes=["Fetches current injury data from ESPN",
+                       "Pitcher injuries have outsized impact via K_PITCHER sub-ratings",
+                       "Starting pitcher OUT can swing prediction 5-10%% in MLB",
+                       "Use 'injuries set <team> <player1>, <player2>' to manually mark players OUT",
+                       "Injury adjustments applied automatically during predictions"])
+    elif topic == "balance":
+        section("balance", "balance",
+                "Show current account balance and cash flow summary.",
+                notes=["Shows total bankroll across all 4 sports",
+                       "Includes deposits, withdrawals, and net trading P&L",
+                       "Shared bankroll: same balance used by NBA, MLB, NFL, NHL",
+                       "See also: 'deposit', 'withdraw', 'portfolio'"])
+    elif topic == "tomorrow":
+        section("tomorrow", "tomorrow",
+                "Generate HTML prediction table for tomorrow's MLB games.",
+                notes=["Same as 'today' but fetches tomorrow's schedule",
+                       "Saves to today_mlb_predictions.html (same file, overwritten)",
+                       "Useful for pre-game analysis and blog prep",
+                       "Includes calibrated probabilities and model confidence"])
+    elif topic in ("advstats", "statcast"):
+        section("advstats / statcast", "advstats  OR  statcast",
+                "Show Statcast/FanGraphs advanced team rankings.",
+                notes=["Shows xwOBA, xERA, barrel rate, hard-hit rate, and more",
+                       "Data from pybaseball (Statcast + FanGraphs, free, no API key)",
+                       "Advanced stats used as features in XGBoost and mega-ensemble",
+                       "Cache refreshes every 24 hours to avoid excessive API calls"])
     print()

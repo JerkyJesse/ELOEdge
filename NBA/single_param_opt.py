@@ -13,8 +13,9 @@ import pandas as pd
 
 from config import GAMES_FILE, load_elo_settings, save_elo_settings
 from elo_model import NBAElo
-from data_players import load_player_stats
+from data_players import load_player_stats, build_league_player_scores
 from build_model import _calc_altitude_bonus
+from backtest import precompute_games, fast_evaluate
 
 # --------------------------------------------------------------------------- #
 #  Elo constructor keys (must match NBAElo.__init__ kwargs)
@@ -58,14 +59,27 @@ MAX_PASSES = 5
 
 
 # --------------------------------------------------------------------------- #
-#  Evaluation function (accuracy %)
+#  Evaluation function (accuracy %) -- uses fast numpy path
 # --------------------------------------------------------------------------- #
-def evaluate(params_dict, games, player_df, alt_bonus):
-    """Run walk-forward backtest with given params and return accuracy %."""
+def evaluate(params_dict, games_or_pc, player_df=None, alt_bonus=None):
+    """Run walk-forward backtest with given params and return accuracy %.
+
+    Accepts either a pre-computed dict (from precompute_games) or a games
+    DataFrame (legacy signature -- player_df and alt_bonus required).
+    """
+    # Detect if caller passed a precomputed dict
+    if isinstance(games_or_pc, dict) and "n_games" in games_or_pc:
+        met = fast_evaluate(games_or_pc, **{k: v for k, v in params_dict.items() if k in _ELO_KEYS and k != "base_rating" and k != "use_mov"})
+        if met is None:
+            return 0.0
+        return met["accuracy"]
+
+    # Legacy path: build NBAElo object (kept for compatibility)
+    games = games_or_pc
     elo_kwargs = {k: v for k, v in params_dict.items() if k in _ELO_KEYS}
     model = NBAElo(**elo_kwargs)
     model._altitude_bonus = alt_bonus
-    if not player_df.empty:
+    if player_df is not None and not player_df.empty:
         model.set_player_stats(player_df)
 
     correct = 0
@@ -107,18 +121,19 @@ def run_coordinate_descent(csv_file=GAMES_FILE):
         print("ERROR: %s not found" % csv_file)
         return
 
-    # ---- pre-load data once ------------------------------------------------
+    # ---- pre-load data once (numpy fast path) --------------------------------
     print("Loading data...")
-    games = pd.read_csv(csv_file)
-    if "neutral_site" not in games.columns:
-        games["neutral_site"] = False
-    games["_date_parsed"] = pd.to_datetime(games["date"], errors="coerce")
-
     player_df = load_player_stats()
+    has_players = not player_df.empty
+    _prebuilt = build_league_player_scores(player_df) if has_players else {}
     alt_bonus = _calc_altitude_bonus(csv_file)
 
-    n_games = len(games)
-    print("  %d games loaded" % n_games)
+    settings_pre = load_elo_settings()
+    base = settings_pre.get("base_rating", 1500.0)
+    _pc = precompute_games(csv_file, _prebuilt if has_players else None, alt_bonus, base)
+
+    n_games = _pc["n_games"]
+    print("  %d games loaded (numpy pre-computed)" % n_games)
 
     # ---- current settings as starting point --------------------------------
     settings = load_elo_settings()
@@ -129,7 +144,7 @@ def run_coordinate_descent(csv_file=GAMES_FILE):
     print("\nComputing baseline accuracy...")
     test_settings = dict(settings)
     test_settings.update(current)
-    baseline_acc = evaluate(test_settings, games, player_df, alt_bonus)
+    baseline_acc = evaluate(test_settings, _pc)
     print("  Baseline accuracy: %.2f%%\n" % baseline_acc)
 
     best_overall_acc = baseline_acc
@@ -163,7 +178,7 @@ def run_coordinate_descent(csv_file=GAMES_FILE):
                 current[param] = float(val)
                 test_settings = dict(settings)
                 test_settings.update(current)
-                acc = evaluate(test_settings, games, player_df, alt_bonus)
+                acc = evaluate(test_settings, _pc)
                 total_evals += 1
                 if acc > best_acc:
                     best_acc = acc
@@ -179,7 +194,7 @@ def run_coordinate_descent(csv_file=GAMES_FILE):
                 current[param] = float(val)
                 test_settings = dict(settings)
                 test_settings.update(current)
-                acc = evaluate(test_settings, games, player_df, alt_bonus)
+                acc = evaluate(test_settings, _pc)
                 total_evals += 1
                 if acc > best_acc:
                     best_acc = acc

@@ -228,6 +228,9 @@ def download_recent_games(csv_file=GAMES_FILE):
     logging.info("Downloading recent NHL games via ESPN scoreboard API...")
     try:
         all_games = []
+        failed_chunks = []
+        consecutive_fails = 0
+        total_chunks = 0
         end_date = datetime.now()
         # If we have existing data, only fetch from last known date onward
         if last_date_dt is not None:
@@ -245,11 +248,22 @@ def download_recent_games(csv_file=GAMES_FILE):
             last_day = (next_month - timedelta(days=1)).day
             date_start = "%d%02d01" % (year, month)
             date_end = "%d%02d%02d" % (year, month, last_day)
+            total_chunks += 1
             games = _fetch_games_for_range(date_start, date_end)
+            if not games:
+                consecutive_fails += 1
+                failed_chunks.append((date_start, date_end))
+                if consecutive_fails >= 3:
+                    logging.critical("⚠ %d consecutive API failures — possible data gap from %s to %s", consecutive_fails, date_start, date_end)
+            else:
+                consecutive_fails = 0
             all_games.extend(games)
             logging.info("  %s-%s: %d games", date_start, date_end, len(games))
             current = next_month
             time.sleep(0.5)
+
+        if failed_chunks:
+            logging.warning("Data fetch completed with %d failed chunks out of %d total", len(failed_chunks), total_chunks)
 
         if not all_games and existing_df is None:
             logging.warning("No games retrieved.")

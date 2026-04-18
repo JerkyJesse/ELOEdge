@@ -1,6 +1,7 @@
 """Backtest, grid search, genetic optimization, and advanced validation methods."""
 
 import os
+import json
 import logging
 from itertools import product, combinations
 from collections import defaultdict
@@ -10,7 +11,12 @@ import numpy as np
 import pandas as pd
 from scipy.optimize import differential_evolution
 from scipy.stats import norm as norm_dist
-from tqdm import tqdm
+try:
+    from tqdm import tqdm
+except ImportError:
+    def tqdm(iterable=None, *a, **kw):
+        return iterable if iterable is not None else range(0)
+    tqdm.write = print
 
 from config import GAMES_FILE, load_elo_settings, save_elo_settings
 from color_helpers import cok, cwarn, cdim, chi, div
@@ -32,16 +38,81 @@ _ELO_KEYS = {"base_rating", "k", "home_adv", "use_mov", "player_boost",
              "rest_advantage_cap"}
 
 
+def _save_backtest_state(model, state_file):
+    """Save full model state for incremental resume."""
+    import time as _time
+    state = {
+        "ratings": dict(model.ratings),
+        "pitcher_ratings": dict(getattr(model, "_pitcher_ratings", {})),
+        "goalie_ratings": dict(getattr(model, "_goalie_ratings", {})),
+        "player_scores": {k: float(v) for k, v in getattr(model, "_player_scores", {}).items()},
+        "rest_days": {k: (str(v) if hasattr(v, 'isoformat') else v)
+                      for k, v in getattr(model, "_rest_days", {}).items()},
+        "recent_results": {k: list(v) for k, v in getattr(model, "_recent_results", {}).items()},
+        "last_game_dates": {k: str(v) for k, v in getattr(model, "_last_game_dates", {}).items()},
+        "games_played": dict(getattr(model, "_games_played", {})),
+        "saved_at": _time.strftime("%Y-%m-%d %H:%M:%S"),
+    }
+    with open(state_file, "w") as f:
+        json.dump(state, f, indent=2, default=str)
+
+
+def _restore_backtest_state(state, model):
+    """Restore model internal state from saved dict (keeps existing settings)."""
+    model.ratings = state.get("ratings", model.ratings)
+    if state.get("pitcher_ratings"):
+        model._pitcher_ratings = state["pitcher_ratings"]
+    if state.get("goalie_ratings"):
+        model._goalie_ratings = state["goalie_ratings"]
+    if state.get("player_scores"):
+        model._player_scores = state["player_scores"]
+    if state.get("rest_days"):
+        model._rest_days = state["rest_days"]
+    if state.get("recent_results"):
+        model._recent_results = {k: list(v) for k, v in state["recent_results"].items()}
+    if state.get("last_game_dates"):
+        model._last_game_dates = state["last_game_dates"]
+    if state.get("games_played"):
+        model._games_played = state["games_played"]
+    return model
+
+
 def backtest_model(csv_file=GAMES_FILE, output_csv="nba_backtest_predictions.csv",
                    calibration_csv="nba_calibration.csv", k=None, home_adv=None,
-                   model=None, fit_platt=False):
+                   model=None, fit_platt=False, resume=False):
     """
     fit_platt=True: fit and save Platt scaler from this run's raw probs.
     Only pass fit_platt=True on the main/user-facing backtest call,
     not inside optimizer loops (leakage + speed).
+    resume=True: load previous predictions + model state, only process new games.
     """
     if not os.path.exists(csv_file):
         return False, {}
+
+    state_file = output_csv.replace("_predictions.csv", "_state.json")
+
+    # --- Resume: load previous predictions + state ---
+    old_preds, old_probs, old_actuals = [], [], []
+    last_pred_date = None
+    saved_state = None
+
+    if resume and model is None and os.path.exists(output_csv) and os.path.exists(state_file):
+        try:
+            old_df = pd.read_csv(output_csv)
+            if len(old_df) > 0:
+                last_pred_date = str(old_df.iloc[-1]["date"])
+                old_preds = old_df.to_dict("records")
+                old_probs = old_df["home_win_prob"].tolist()
+                old_actuals = [1 if r["actual_winner"] == r["home_team"] else 0
+                               for r in old_preds]
+            with open(state_file) as f:
+                saved_state = json.load(f)
+        except Exception as e:
+            logging.warning("Resume load failed, running full backtest: %s", e)
+            old_preds, old_probs, old_actuals = [], [], []
+            last_pred_date = None
+            saved_state = None
+
     if model is None:
         settings = load_elo_settings()
         model = NBAElo(**{k_: v for k_, v in settings.items() if k_ in _ELO_KEYS})
@@ -53,11 +124,33 @@ def backtest_model(csv_file=GAMES_FILE, output_csv="nba_backtest_predictions.csv
         player_df = load_player_stats()
         if not player_df.empty:
             model.set_player_stats(player_df)
+
+    # Restore saved state if resuming
+    if saved_state and last_pred_date:
+        _restore_backtest_state(saved_state, model)
+
     games = pd.read_csv(csv_file)
     if "neutral_site" not in games.columns:
         games["neutral_site"] = False
     # Parse dates for rest-day calculations
     games["_date_parsed"] = pd.to_datetime(games["date"], errors="coerce")
+
+    # Filter to new games only if resuming
+    if last_pred_date and saved_state:
+        cutoff = pd.to_datetime(last_pred_date)
+        games = games[games["_date_parsed"] > cutoff].copy()
+        if len(games) == 0:
+            print("  No new games since %s (resume)" % last_pred_date)
+            # Return metrics from old predictions
+            if old_probs:
+                brier_val = brier_score_binary(old_actuals, old_probs)
+                ll_val = log_loss_binary(old_actuals, old_probs)
+                acc_val = sum(1 for p in old_preds if p["correct"]) / len(old_preds) * 100
+                return True, {"accuracy": acc_val, "log_loss": ll_val,
+                              "brier": brier_val, "n_games": len(old_preds)}
+            return False, {}
+        print("  Resuming: %d old + %d new games" % (len(old_preds), len(games)))
+
     predictions, probs, actuals = [], [], []
     for _, row in games.iterrows():
         try:
@@ -87,11 +180,24 @@ def backtest_model(csv_file=GAMES_FILE, output_csv="nba_backtest_predictions.csv
             )
         except Exception as e:
             logging.warning("Backtest row error: %s", e)
-    if not predictions:
+    if not predictions and not old_preds:
         return False, {}
-    pred_df = pd.DataFrame(predictions)
+
+    # Merge old + new predictions
+    all_predictions = old_preds + predictions
+    all_probs = old_probs + probs
+    all_actuals = old_actuals + actuals
+
+    pred_df = pd.DataFrame(all_predictions)
     pred_df.to_csv(output_csv, index=False)
-    calibration_table(probs, actuals).to_csv(calibration_csv, index=False)
+    calibration_table(all_probs, all_actuals).to_csv(calibration_csv, index=False)
+
+    # Save model state for future resume
+    _save_backtest_state(model, state_file)
+
+    # Use merged lists for metrics below
+    probs = all_probs
+    actuals = all_actuals
 
     if fit_platt and len(probs) >= 100:
         scaler     = fit_platt_scaler(probs, actuals)
@@ -136,6 +242,530 @@ _OPT_KEYS = ("k", "home_adv", "player_boost", "rest_factor",
              "b2b_penalty", "road_trip_factor", "homestand_factor",
              "win_streak_factor", "altitude_factor", "season_phase_factor",
              "scoring_consistency_factor", "rest_advantage_cap")
+
+
+# ── Fast Numpy-Based Evaluation for Optimizer Inner Loop ─────────────
+#
+# Pre-computes all game data into numpy arrays once, then evaluates
+# any parameter set via a tight sequential loop with direct array
+# indexing -- no NBAElo object creation, no pandas iteration, no dict
+# lookups inside the hot loop.
+#
+# Usage:
+#   precomp = precompute_games(csv_file, player_scores, altitude_bonus)
+#   metrics = fast_evaluate(precomp, k=8.5, home_adv=32.0, ...)
+#
+# Returns dict with 'accuracy', 'log_loss', 'brier', 'n_games'.
+
+def precompute_games(csv_file, player_scores=None, altitude_bonus=None,
+                     base_rating=1500.0):
+    """Load all games into numpy arrays for fast_evaluate.
+
+    Returns a dict of pre-computed arrays and lookup tables.
+    Called ONCE before any optimizer loop.
+    """
+    import math as _math
+    from config import same_division
+
+    games = pd.read_csv(csv_file)
+    if "neutral_site" not in games.columns:
+        games["neutral_site"] = False
+    games["_date_parsed"] = pd.to_datetime(games["date"], errors="coerce")
+    n_games = len(games)
+
+    # --- Build team ID mapping ---
+    all_teams = sorted(set(games["home_team"].unique()) | set(games["away_team"].unique()))
+    team_to_id = {t: i for i, t in enumerate(all_teams)}
+    n_teams = len(all_teams)
+
+    # --- Pre-compute timezone map (team_id -> tz offset) ---
+    from elo_model import TEAM_TIMEZONE
+    tz_map = np.full(n_teams, -6.0, dtype=np.float64)  # default Central
+    for t, tz in TEAM_TIMEZONE.items():
+        if t in team_to_id:
+            tz_map[team_to_id[t]] = float(tz)
+
+    # --- Pre-compute division pairs ---
+    same_div = np.zeros((n_teams, n_teams), dtype=np.bool_)
+    for i, t1 in enumerate(all_teams):
+        for j, t2 in enumerate(all_teams):
+            if i != j and same_division(t1, t2):
+                same_div[i, j] = True
+
+    # --- Pre-compute player scores per team ---
+    player_score_arr = np.zeros(n_teams, dtype=np.float64)
+    if player_scores:
+        for t, sc in player_scores.items():
+            if t in team_to_id:
+                player_score_arr[team_to_id[t]] = float(sc)
+
+    # --- Pre-compute altitude bonus per team ---
+    alt_bonus_arr = np.zeros(n_teams, dtype=np.float64)
+    if altitude_bonus:
+        for t, ab in altitude_bonus.items():
+            if t in team_to_id:
+                alt_bonus_arr[team_to_id[t]] = float(ab)
+
+    # --- Build per-game arrays ---
+    home_id = np.empty(n_games, dtype=np.int32)
+    away_id = np.empty(n_games, dtype=np.int32)
+    home_score = np.empty(n_games, dtype=np.float64)
+    away_score = np.empty(n_games, dtype=np.float64)
+    neutral = np.zeros(n_games, dtype=np.bool_)
+    home_win = np.empty(n_games, dtype=np.float64)  # 1.0 or 0.0
+    mov_log = np.empty(n_games, dtype=np.float64)  # log(|margin|+1)
+
+    # Date ordinals for rest-day calculation (NaT -> -9999)
+    date_ordinal = np.full(n_games, -9999, dtype=np.int64)
+
+    # Playoff indicator
+    is_playoff = np.zeros(n_games, dtype=np.bool_)
+
+    for idx in range(n_games):
+        row = games.iloc[idx]
+        h = team_to_id[row["home_team"]]
+        a = team_to_id[row["away_team"]]
+        home_id[idx] = h
+        away_id[idx] = a
+        hs = float(row["home_score"])
+        as_ = float(row["away_score"])
+        home_score[idx] = hs
+        away_score[idx] = as_
+        neutral[idx] = bool(row["neutral_site"])
+        home_win[idx] = 1.0 if hs > as_ else 0.0
+        margin = abs(hs - as_)
+        mov_log[idx] = _math.log(max(1.0, margin) + 1.0)
+        dt = row["_date_parsed"]
+        if pd.notna(dt):
+            date_ordinal[idx] = dt.toordinal()
+            m, d = dt.month, dt.day
+            if (m == 4 and d >= 15) or m in (5, 6):
+                is_playoff[idx] = True
+
+    return {
+        "n_games": n_games,
+        "n_teams": n_teams,
+        "team_to_id": team_to_id,
+        "all_teams": all_teams,
+        "home_id": home_id,
+        "away_id": away_id,
+        "home_score": home_score,
+        "away_score": away_score,
+        "neutral": neutral,
+        "home_win": home_win,
+        "mov_log": mov_log,
+        "date_ordinal": date_ordinal,
+        "is_playoff": is_playoff,
+        "tz_map": tz_map,
+        "same_div": same_div,
+        "player_score_arr": player_score_arr,
+        "alt_bonus_arr": alt_bonus_arr,
+        "base_rating": base_rating,
+    }
+
+
+def fast_evaluate(pc, k=8.23, home_adv=34.0, use_mov=True,
+                  player_boost=35.0, rest_factor=25.0, form_weight=10.0,
+                  travel_factor=28.2, sos_factor=0.0,
+                  playoff_hca_factor=0.57, pace_factor=35.0,
+                  division_factor=10.0, mean_reversion=0.0,
+                  b2b_penalty=0.0, road_trip_factor=3.47,
+                  homestand_factor=0.0, win_streak_factor=0.0,
+                  altitude_factor=0.0, season_phase_factor=0.0,
+                  scoring_consistency_factor=0.0, rest_advantage_cap=2.97):
+    """Evaluate a parameter set using pre-computed numpy arrays.
+
+    Much faster than building NBAElo + calling backtest_model() because:
+    - No object construction overhead
+    - No pandas row iteration
+    - No dict lookups in hot loop (direct array indexing)
+    - No string comparisons
+    - Pre-allocated output arrays
+
+    Parameters
+    ----------
+    pc : dict
+        Pre-computed data from precompute_games().
+    All other params match NBAElo constructor.
+
+    Returns
+    -------
+    dict with 'accuracy', 'log_loss', 'brier', 'n_games', or None on failure.
+    """
+    n_games = pc["n_games"]
+    n_teams = pc["n_teams"]
+    base = pc["base_rating"]
+    home_id = pc["home_id"]
+    away_id = pc["away_id"]
+    home_score_arr = pc["home_score"]
+    away_score_arr = pc["away_score"]
+    neutral_arr = pc["neutral"]
+    home_win_arr = pc["home_win"]
+    mov_log_arr = pc["mov_log"]
+    date_ord = pc["date_ordinal"]
+    is_playoff = pc["is_playoff"]
+    tz_map = pc["tz_map"]
+    same_div_mat = pc["same_div"]
+    player_sc = pc["player_score_arr"]
+    alt_bonus = pc["alt_bonus_arr"]
+
+    if n_games == 0:
+        return None
+
+    rest_cap = int(rest_advantage_cap) if rest_advantage_cap > 0 else 3
+
+    # --- Per-team state arrays (reset each evaluation) ---
+    elo = np.full(n_teams, base, dtype=np.float64)
+
+    # Last game date ordinal per team (-9999 = unknown)
+    last_date = np.full(n_teams, -9999, dtype=np.int64)
+
+    # Last game location (team_id of venue home team, -1 = unknown)
+    last_location = np.full(n_teams, -1, dtype=np.int32)
+
+    # Recent results: circular buffer [n_teams, 10]
+    recent_results = np.full((n_teams, 10), -1.0, dtype=np.float64)
+    recent_count = np.zeros(n_teams, dtype=np.int32)
+
+    # Opponent Elo history: circular buffer [n_teams, 10]
+    opp_elos = np.full((n_teams, 10), base, dtype=np.float64)
+    opp_count = np.zeros(n_teams, dtype=np.int32)
+
+    # Team scores: circular buffer [n_teams, 10, 2]  (pts_for, pts_against)
+    team_scores = np.zeros((n_teams, 10, 2), dtype=np.float64)
+    score_count = np.zeros(n_teams, dtype=np.int32)
+
+    # Last margin per team
+    last_margin = np.zeros(n_teams, dtype=np.float64)
+    has_last_margin = np.zeros(n_teams, dtype=np.bool_)
+
+    # Consecutive home/away
+    consec_home = np.zeros(n_teams, dtype=np.int32)
+    consec_away = np.zeros(n_teams, dtype=np.int32)
+
+    # Games played per team (for season_phase)
+    games_played = np.zeros(n_teams, dtype=np.int32)
+
+    # --- Output arrays ---
+    preds = np.empty(n_games, dtype=np.float64)
+
+    # --- Main loop ---
+    for g in range(n_games):
+        h = home_id[g]
+        a = away_id[g]
+        is_neutral = neutral_arr[g]
+        is_po = is_playoff[g]
+        g_date_ord = date_ord[g]
+
+        ra = elo[h]
+        rb = elo[a]
+
+        # Home court advantage (reduced in playoffs)
+        if not is_neutral:
+            hca = home_adv * playoff_hca_factor if is_po else home_adv
+            ra += hca
+            # Altitude bonus for home team
+            ab = alt_bonus[h]
+            if ab > 0.0:
+                ra += ab * altitude_factor if altitude_factor > 0.0 else ab
+
+        # Player boost
+        if player_boost > 0.0:
+            ra += player_sc[h] * player_boost
+            rb += player_sc[a] * player_boost
+
+        # Rest adjustment
+        if rest_factor != 0.0 and g_date_ord > 0:
+            ld_h = last_date[h]
+            ld_a = last_date[a]
+            if ld_h > 0:
+                rd_h = g_date_ord - ld_h
+                rd_h = min(rd_h, rest_cap)
+                ra += rest_factor * (rd_h - 1)
+            if ld_a > 0:
+                rd_a = g_date_ord - ld_a
+                rd_a = min(rd_a, rest_cap)
+                rb += rest_factor * (rd_a - 1)
+
+        # Form adjustment (recent win%)
+        if form_weight != 0.0:
+            rc_h = recent_count[h]
+            if rc_h >= 5:
+                n_use = min(rc_h, 10)
+                # Sum the most recent n_use results
+                start_h = rc_h % 10  # next write position = oldest in window
+                win_sum_h = 0.0
+                for ri in range(n_use):
+                    idx = (start_h - n_use + ri) % 10
+                    val = recent_results[h, idx]
+                    if val >= 0:
+                        win_sum_h += val
+                ra += form_weight * (win_sum_h / n_use - 0.5)
+
+            rc_a = recent_count[a]
+            if rc_a >= 5:
+                n_use = min(rc_a, 10)
+                start_a = rc_a % 10
+                win_sum_a = 0.0
+                for ri in range(n_use):
+                    idx = (start_a - n_use + ri) % 10
+                    val = recent_results[a, idx]
+                    if val >= 0:
+                        win_sum_a += val
+                rb += form_weight * (win_sum_a / n_use - 0.5)
+
+        # Travel adjustment
+        if travel_factor > 0.0 and not is_neutral:
+            venue = h  # home team's city is the venue
+            ll_h = last_location[h]
+            if ll_h >= 0:
+                tz_diff_h = abs(tz_map[ll_h] - tz_map[venue])
+                if tz_diff_h > 0:
+                    ra -= travel_factor * tz_diff_h
+            ll_a = last_location[a]
+            if ll_a >= 0:
+                tz_diff_a = abs(tz_map[ll_a] - tz_map[venue])
+                if tz_diff_a > 0:
+                    rb -= travel_factor * tz_diff_a
+
+        # SOS adjustment
+        if sos_factor != 0.0:
+            oc_h = opp_count[h]
+            if oc_h >= 5:
+                n_use = min(oc_h, 10)
+                opp_sum_h = 0.0
+                for ri in range(n_use):
+                    opp_sum_h += opp_elos[h, (oc_h - n_use + ri) % 10]
+                ra += sos_factor * (opp_sum_h / n_use - base) / 100.0
+
+            oc_a = opp_count[a]
+            if oc_a >= 5:
+                n_use = min(oc_a, 10)
+                opp_sum_a = 0.0
+                for ri in range(n_use):
+                    opp_sum_a += opp_elos[a, (oc_a - n_use + ri) % 10]
+                rb += sos_factor * (opp_sum_a / n_use - base) / 100.0
+
+        # Pace adjustment
+        if pace_factor != 0.0:
+            sc_h = score_count[h]
+            sc_a = score_count[a]
+            if sc_h >= 5 and sc_a >= 5:
+                n_h = min(sc_h, 10)
+                n_a = min(sc_a, 10)
+                pace_h = 0.0
+                for ri in range(n_h):
+                    idx = (sc_h - n_h + ri) % 10
+                    pace_h += team_scores[h, idx, 0] + team_scores[h, idx, 1]
+                pace_h /= (2.0 * n_h)
+                pace_a = 0.0
+                for ri in range(n_a):
+                    idx = (sc_a - n_a + ri) % 10
+                    pace_a += team_scores[a, idx, 0] + team_scores[a, idx, 1]
+                pace_a /= (2.0 * n_a)
+                pace_diff = pace_h - pace_a
+                ra -= pace_factor * pace_diff / 10.0
+                rb += pace_factor * pace_diff / 10.0
+
+        # Division rivalry
+        if division_factor != 0.0 and same_div_mat[h, a]:
+            diff = elo[h] - elo[a]
+            adj = division_factor * diff / 100.0
+            ra -= adj
+            rb += adj
+
+        # Mean reversion
+        if mean_reversion != 0.0:
+            if has_last_margin[h] and abs(last_margin[h]) > 15:
+                ra -= mean_reversion * last_margin[h] / 100.0
+            if has_last_margin[a] and abs(last_margin[a]) > 15:
+                rb -= mean_reversion * last_margin[a] / 100.0
+
+        # B2B penalty
+        if b2b_penalty != 0.0 and g_date_ord > 0:
+            ld_h2 = last_date[h]
+            if ld_h2 > 0:
+                rd2 = g_date_ord - ld_h2
+                if rd2 <= 1:
+                    scale = 1.0 if rd2 == 0 else 0.5
+                    ra -= b2b_penalty * scale
+            ld_a2 = last_date[a]
+            if ld_a2 > 0:
+                rd2 = g_date_ord - ld_a2
+                if rd2 <= 1:
+                    scale = 1.0 if rd2 == 0 else 0.5
+                    rb -= b2b_penalty * scale
+
+        # Road trip / homestand
+        if road_trip_factor != 0.0:
+            ca = consec_away[h]
+            if ca >= 3:
+                ra -= road_trip_factor * min(ca - 2, 5)
+            ca2 = consec_away[a]
+            if ca2 >= 3:
+                rb -= road_trip_factor * min(ca2 - 2, 5)
+
+        if homestand_factor != 0.0:
+            ch = consec_home[h]
+            if ch >= 3:
+                ra += homestand_factor * min(ch - 2, 5)
+            ch2 = consec_home[a]
+            if ch2 >= 3:
+                rb += homestand_factor * min(ch2 - 2, 5)
+
+        # Win streak momentum
+        if win_streak_factor != 0.0:
+            for team_idx, rating_add in ((h, True), (a, False)):
+                rc = recent_count[team_idx]
+                if rc >= 2:
+                    pos = (rc - 1) % 10
+                    last_r = recent_results[team_idx, pos]
+                    if last_r >= 0:
+                        streak = 1
+                        for si in range(2, min(rc, 6)):
+                            prev_pos = (rc - si) % 10
+                            if recent_results[team_idx, prev_pos] == last_r:
+                                streak += 1
+                            else:
+                                break
+                        streak = min(streak, 5)
+                        ws_adj = win_streak_factor * streak / 5.0
+                        if last_r < 0.5:
+                            ws_adj = -ws_adj
+                        if rating_add:
+                            ra += ws_adj
+                        else:
+                            rb += ws_adj
+
+        # Scoring consistency
+        if scoring_consistency_factor != 0.0:
+            for team_idx, is_home in ((h, True), (a, False)):
+                sc = score_count[team_idx]
+                if sc >= 5:
+                    n_use = min(sc, 10)
+                    pf_vals_local = np.empty(n_use)
+                    for ri in range(n_use):
+                        pf_vals_local[ri] = team_scores[team_idx, (sc - n_use + ri) % 10, 0]
+                    std = float(np.std(pf_vals_local))
+                    adj = -scoring_consistency_factor * (std - 8.0) / 10.0
+                    if is_home:
+                        ra += adj
+                    else:
+                        rb += adj
+
+        # Season phase dampener
+        if season_phase_factor != 0.0:
+            avg_gn = (games_played[h] + games_played[a]) / 2.0
+            game_frac = min(avg_gn / 82.0, 1.0)
+            if game_frac < 0.20:
+                ph_adj = season_phase_factor * (0.20 - game_frac)
+                diff = ra - rb
+                ra -= ph_adj * diff / 100.0
+                rb += ph_adj * diff / 100.0
+
+        # --- Win probability ---
+        prob = 1.0 / (1.0 + 10.0 ** (-(ra - rb) / 400.0))
+        preds[g] = prob
+
+        # --- Update state (must happen AFTER prediction) ---
+        # Opponent Elo tracking
+        opp_elos[h, opp_count[h] % 10] = elo[a]
+        opp_count[h] += 1
+        opp_elos[a, opp_count[a] % 10] = elo[h]
+        opp_count[a] += 1
+
+        # Score tracking
+        hs = home_score_arr[g]
+        as_ = away_score_arr[g]
+        team_scores[h, score_count[h] % 10, 0] = hs
+        team_scores[h, score_count[h] % 10, 1] = as_
+        score_count[h] += 1
+        team_scores[a, score_count[a] % 10, 0] = as_
+        team_scores[a, score_count[a] % 10, 1] = hs
+        score_count[a] += 1
+
+        # Elo update
+        ea = 1.0 / (1.0 + 10.0 ** ((elo[a] - elo[h] - (0.0 if neutral_arr[g] else home_adv)) / 400.0))
+        hw = home_win_arr[g]
+        sa = hw
+        sb = 1.0 - hw
+        mov = mov_log_arr[g] if use_mov else 1.0
+        elo[h] += k * mov * (sa - ea)
+        elo[a] += k * mov * (sb - (1.0 - ea))
+
+        # Date tracking
+        if g_date_ord > 0:
+            last_date[h] = g_date_ord
+            last_date[a] = g_date_ord
+
+        # Location tracking
+        last_location[h] = h
+        last_location[a] = h  # away team was at home team's city
+
+        # Recent results tracking
+        recent_results[h, recent_count[h] % 10] = sa
+        recent_count[h] += 1
+        recent_results[a, recent_count[a] % 10] = sb
+        recent_count[a] += 1
+
+        # Margin tracking
+        margin = hs - as_
+        last_margin[h] = margin
+        last_margin[a] = -margin
+        has_last_margin[h] = True
+        has_last_margin[a] = True
+
+        # Consecutive home/away
+        consec_home[h] += 1
+        consec_away[h] = 0
+        consec_away[a] += 1
+        consec_home[a] = 0
+
+        # Games played
+        games_played[h] += 1
+        games_played[a] += 1
+
+    # --- Compute metrics ---
+    outcomes = home_win_arr
+    correct = ((preds > 0.5) == (outcomes > 0.5))
+    accuracy = float(np.mean(correct) * 100.0)
+
+    # Log loss
+    preds_clipped = np.clip(preds, 1e-15, 1.0 - 1e-15)
+    ll = -float(np.mean(outcomes * np.log(preds_clipped) +
+                        (1.0 - outcomes) * np.log(1.0 - preds_clipped)))
+
+    # Brier score
+    brier = float(np.mean((preds - outcomes) ** 2))
+
+    return {"accuracy": accuracy, "log_loss": ll, "brier": brier, "n_games": n_games}
+
+
+def _fast_eval_from_dict(pc, params_dict, use_mov=True):
+    """Thin wrapper: call fast_evaluate from a params dict (optimizer convenience)."""
+    return fast_evaluate(
+        pc, use_mov=use_mov,
+        k=params_dict.get("k", 8.23),
+        home_adv=params_dict.get("home_adv", 34.0),
+        player_boost=params_dict.get("player_boost", 35.0),
+        rest_factor=params_dict.get("rest_factor", 25.0),
+        form_weight=params_dict.get("form_weight", 10.0),
+        travel_factor=params_dict.get("travel_factor", 28.2),
+        sos_factor=params_dict.get("sos_factor", 0.0),
+        playoff_hca_factor=params_dict.get("playoff_hca_factor", 0.57),
+        pace_factor=params_dict.get("pace_factor", 35.0),
+        division_factor=params_dict.get("division_factor", 10.0),
+        mean_reversion=params_dict.get("mean_reversion", 0.0),
+        b2b_penalty=params_dict.get("b2b_penalty", 0.0),
+        road_trip_factor=params_dict.get("road_trip_factor", 3.47),
+        homestand_factor=params_dict.get("homestand_factor", 0.0),
+        win_streak_factor=params_dict.get("win_streak_factor", 0.0),
+        altitude_factor=params_dict.get("altitude_factor", 0.0),
+        season_phase_factor=params_dict.get("season_phase_factor", 0.0),
+        scoring_consistency_factor=params_dict.get("scoring_consistency_factor", 0.0),
+        rest_advantage_cap=params_dict.get("rest_advantage_cap", 2.97),
+    )
+
 
 def _apply_best_settings(best_params, csv_file):
     """Save best params to settings, rebuild model, refit Platt."""
@@ -220,6 +850,10 @@ def grid_search_optimization(csv_file=GAMES_FILE, output_file="nba_grid_search.c
     _prebuilt_scores = build_league_player_scores(player_df) if has_players else {}
     _alt_bonus = _calc_altitude_bonus(csv_file)
 
+    # Pre-compute game arrays once for fast evaluation
+    _pc = precompute_games(csv_file, _prebuilt_scores if has_players else None,
+                           _alt_bonus, base)
+
     results    = []
     best_score = -1e9
     best_params = None
@@ -237,21 +871,16 @@ def grid_search_optimization(csv_file=GAMES_FILE, output_file="nba_grid_search.c
                           playoff_hca_values), 1),
         total=total, desc="  Grid search", leave=True)
     for i, (k, home_adv, player_boost, rest_factor, travel, pace, phca) in pbar:
-        fresh_model = NBAElo(
-            base_rating=base, k=float(k), home_adv=float(home_adv),
-            use_mov=use_mov, player_boost=float(player_boost),
-            rest_factor=float(rest_factor), travel_factor=float(travel),
-            pace_factor=float(pace), playoff_hca_factor=float(phca),
+        metrics = fast_evaluate(
+            _pc, k=float(k), home_adv=float(home_adv), use_mov=use_mov,
+            player_boost=float(player_boost), rest_factor=float(rest_factor),
+            travel_factor=float(travel), pace_factor=float(pace),
+            playoff_hca_factor=float(phca),
         )
-        fresh_model._altitude_bonus = _alt_bonus
-        if has_players:
-            fresh_model._player_scores = _prebuilt_scores
-        success, metrics = backtest_model(
-            csv_file, "temp_backtest.csv", "temp_cal.csv", model=fresh_model,
-        )
-        if not success:
+        if metrics is None:
             continue
-        score = -(metrics["log_loss"] * 8.0 + metrics["brier"] * 40.0)
+        # ACCURACY-FIRST objective (was: LogLoss*8 + Brier*40)
+        score = -((100.0 - metrics["accuracy"]) + metrics["brier"] * 5.0)
         row   = {
             "k": float(k), "home_adv": float(home_adv),
             "player_boost": float(player_boost), "rest_factor": float(rest_factor),
@@ -273,9 +902,6 @@ def grid_search_optimization(csv_file=GAMES_FILE, output_file="nba_grid_search.c
                           cok("<- BEST")))
 
     div(120)
-    for tmp in ["temp_backtest.csv", "temp_cal.csv"]:
-        try: os.remove(tmp)
-        except OSError: pass
     if results:
         pd.DataFrame(results).to_csv(output_file, index=False)
     if best_params:
@@ -340,6 +966,10 @@ def genetic_optimization(csv_file=GAMES_FILE, output_file="nba_genetic_results.c
     _eval_counter = [0]
     _alt_bonus    = _calc_altitude_bonus(csv_file)
 
+    # Pre-compute game arrays once for fast evaluation
+    _pc = precompute_games(csv_file, _prebuilt_scores if has_players else None,
+                           _alt_bonus, base)
+
     div(120)
     print("  GENETIC OPTIMIZER - maxiter=%d  popsize=%d  (7 params)" % (maxiter, popsize))
     print("  K:%s  HA:%s  PB:%s  Rest:%s  Travel:%s  Pace:%s  PHCA:%s"
@@ -364,21 +994,16 @@ def genetic_optimization(csv_file=GAMES_FILE, output_file="nba_genetic_results.c
 
     def objective(params):
         k, home_adv, player_boost, rest_factor, travel, pace, phca = params
-        fresh_model = NBAElo(
-            base_rating=base, k=float(k), home_adv=float(home_adv),
-            use_mov=use_mov, player_boost=float(player_boost),
-            rest_factor=float(rest_factor), travel_factor=float(travel),
-            pace_factor=float(pace), playoff_hca_factor=float(phca),
+        metrics = fast_evaluate(
+            _pc, k=float(k), home_adv=float(home_adv), use_mov=use_mov,
+            player_boost=float(player_boost), rest_factor=float(rest_factor),
+            travel_factor=float(travel), pace_factor=float(pace),
+            playoff_hca_factor=float(phca),
         )
-        fresh_model._altitude_bonus = _alt_bonus
-        if has_players:
-            fresh_model._player_scores = _prebuilt_scores
-        success, metrics = backtest_model(
-            csv_file, "temp_genetic.csv", "temp_genetic_cal.csv", model=fresh_model,
-        )
-        if not success:
+        if metrics is None:
             return 1e9
-        score = metrics["log_loss"] * 8.0 + metrics["brier"] * 40.0
+        # ACCURACY-FIRST objective (was: LogLoss*8 + Brier*40)
+        score = (100.0 - metrics["accuracy"]) + metrics["brier"] * 5.0
         _eval_counter[0] += 1
         if score < _best_score[0]:
             _best_score[0]  = score
@@ -419,7 +1044,8 @@ def genetic_optimization(csv_file=GAMES_FILE, output_file="nba_genetic_results.c
         "accuracy": metrics.get("accuracy", np.nan),
         "log_loss": metrics.get("log_loss",  np.nan),
         "brier":    metrics.get("brier",     np.nan),
-        "score":    -(metrics.get("log_loss",0)*8.0 + metrics.get("brier",0)*40.0),
+        # ACCURACY-FIRST objective (was: LogLoss*8 + Brier*40)
+        "score":    -((100.0 - metrics.get("accuracy",0)) + metrics.get("brier",0)*5.0),
     }
     pd.DataFrame([row]).to_csv(output_file, index=False)
     for tmp in ["temp_genetic.csv", "temp_genetic_cal.csv"]:
@@ -516,6 +1142,10 @@ def bayesian_optimization(csv_file=GAMES_FILE, output_file="nba_bayesian_results
     _prebuilt_scores = build_league_player_scores(player_df) if has_players else {}
     _alt_bonus = _calc_altitude_bonus(csv_file)
 
+    # Pre-compute game arrays once for fast evaluation
+    _pc = precompute_games(csv_file, _prebuilt_scores if has_players else None,
+                           _alt_bonus, base)
+
     print("\nBAYESIAN OPTIMIZER SETTINGS  (press Enter to use defaults)")
     print(cdim("  GP surrogate + Expected Improvement acquisition"))
     div(52)
@@ -549,16 +1179,15 @@ def bayesian_optimization(csv_file=GAMES_FILE, output_file="nba_bayesian_results
 
     def objective(params):
         k, ha, pb, rf, tf, pf, phca = params
-        m = NBAElo(base_rating=base, k=float(k), home_adv=float(ha), use_mov=use_mov,
-                   player_boost=float(pb), rest_factor=float(rf), travel_factor=float(tf),
-                   pace_factor=float(pf), playoff_hca_factor=float(phca))
-        m._altitude_bonus = _alt_bonus
-        if has_players:
-            m._player_scores = _prebuilt_scores
-        ok, met = backtest_model(csv_file, "temp_bayes.csv", "temp_bayes_cal.csv", model=m)
-        if not ok:
+        metrics = fast_evaluate(
+            _pc, k=float(k), home_adv=float(ha), use_mov=use_mov,
+            player_boost=float(pb), rest_factor=float(rf), travel_factor=float(tf),
+            pace_factor=float(pf), playoff_hca_factor=float(phca),
+        )
+        if metrics is None:
             return 1e9
-        return met["log_loss"] * 8.0 + met["brier"] * 40.0
+        # ACCURACY-FIRST objective (was: LogLoss*8 + Brier*40)
+        return (100.0 - metrics["accuracy"]) + metrics["brier"] * 5.0
 
     # Minimal GP surrogate
     class _GP:
@@ -941,7 +1570,7 @@ def monte_carlo_permutation_test(csv_file=GAMES_FILE, n_permutations=500):
         try: os.remove(tmp)
         except OSError: pass
 
-    if perm_accs:
+    if perm_accs and perm_briers:
         p_acc = sum(1 for a in perm_accs if a >= real_acc) / len(perm_accs)
         p_brier = sum(1 for b in perm_briers if b <= real_brier) / len(perm_briers)
         div(80)
@@ -955,7 +1584,10 @@ def monte_carlo_permutation_test(csv_file=GAMES_FILE, n_permutations=500):
         else:
             print("  %s Model NOT significant (p >= 0.05)" % cwarn("NOT SIGNIFICANT:"))
         return {"p_acc": p_acc, "p_brier": p_brier}
-    return None
+    else:
+        p_acc = 1.0
+        p_brier = 1.0
+        return {"p_acc": p_acc, "p_brier": p_brier}
 
 
 # ── Rolling Origin Recalibration ─────────────────────────────────────
@@ -1358,6 +1990,9 @@ def auto_optimize(csv_file=GAMES_FILE):
     _prebuilt = build_league_player_scores(player_df) if has_players else {}
     _alt = _calc_altitude_bonus(csv_file)
 
+    # Pre-compute game arrays once for fast evaluation
+    _pc = precompute_games(csv_file, _prebuilt if has_players else None, _alt, base)
+
     eval_count = [0]
 
     # All 19 prediction-relevant parameters
@@ -1395,17 +2030,14 @@ def auto_optimize(csv_file=GAMES_FILE):
     default_vals = [(p[2][0] + p[2][1]) / 2.0 if p[1] is None else 0.0 for p in PARAMS]
 
     def _eval(params):
-        """Shared objective: minimize LogLoss*8 + Brier*40. Accepts all 19 params."""
+        """Shared objective: minimize (100 - accuracy) + Brier*5. Accepts all 19 params."""
         kw = {name: float(params[i]) for i, name in enumerate(PARAM_NAMES)}
-        m = NBAElo(base_rating=base, use_mov=use_mov, **kw)
-        m._altitude_bonus = _alt
-        if has_players:
-            m._player_scores = _prebuilt
-        ok, met = backtest_model(csv_file, "temp_auto.csv", "temp_auto_cal.csv", model=m)
+        met = fast_evaluate(_pc, use_mov=use_mov, **kw)
         eval_count[0] += 1
-        if not ok:
+        if met is None:
             return 1e9, {}
-        return met["log_loss"] * 8.0 + met["brier"] * 40.0, met
+        # ACCURACY-FIRST objective (was: LogLoss*8 + Brier*40)
+        return (100.0 - met["accuracy"]) + met["brier"] * 5.0, met
 
     def _params_dict(p):
         return {name: float(p[i]) for i, name in enumerate(PARAM_NAMES)}
@@ -1483,7 +2115,11 @@ def auto_optimize(csv_file=GAMES_FILE):
 
     # ── Tighten bounds around grid best ──────────────────────────────
     def _tight(val, lo, hi, hw):
-        return (max(lo, val - hw), min(hi, val + hw))
+        tlo = max(lo, val - hw)
+        thi = min(hi, val + hw)
+        if tlo >= thi:
+            tlo, thi = lo, hi
+        return (tlo, thi)
 
     bp = grid_best_params
     bounds = []
@@ -1688,6 +2324,9 @@ def super_optimize(csv_file=GAMES_FILE):
     _prebuilt = build_league_player_scores(player_df) if has_players else {}
     _alt = _calc_altitude_bonus(csv_file)
 
+    # Pre-compute game arrays once for fast evaluation
+    _pc = precompute_games(csv_file, _prebuilt if has_players else None, _alt, base)
+
     eval_count = [0]
 
     # 9-param evaluation: K, HomeAdv, PlayerBoost, RestFactor, TravelFactor,
@@ -1696,21 +2335,18 @@ def super_optimize(csv_file=GAMES_FILE):
 
     def _eval(params):
         k, ha, pb, rf, tf, pf, phca, sos, fw = params
-        m = NBAElo(base_rating=base, k=float(k), home_adv=float(ha), use_mov=use_mov,
-                   player_boost=float(pb), rest_factor=float(rf),
-                   travel_factor=float(tf), pace_factor=float(pf),
-                   playoff_hca_factor=float(phca), sos_factor=float(sos),
-                   form_weight=float(fw))
-        m._altitude_bonus = _alt
-        if has_players:
-            m._player_scores = _prebuilt
-        ok, met = backtest_model(csv_file, "temp_super.csv", "temp_super_cal.csv", model=m)
+        met = fast_evaluate(
+            _pc, k=float(k), home_adv=float(ha), use_mov=use_mov,
+            player_boost=float(pb), rest_factor=float(rf),
+            travel_factor=float(tf), pace_factor=float(pf),
+            playoff_hca_factor=float(phca), sos_factor=float(sos),
+            form_weight=float(fw),
+        )
         eval_count[0] += 1
-        if not ok:
+        if met is None:
             return 1e9, {}
-        # Accuracy tiebreaker: when Brier is on a plateau (differs by <0.001),
-        # accuracy breaks the tie.  0.1 weight means 1% accuracy ≈ 0.001 Brier.
-        return met["log_loss"] * 8.0 + met["brier"] * 40.0 - met.get("accuracy", 0) * 0.1, met
+        # ACCURACY-FIRST objective (was: LogLoss*8 + Brier*40)
+        return (100.0 - met.get("accuracy", 0)) + met["brier"] * 5.0, met
 
     def _params_dict(p):
         return {"k": float(p[0]), "home_adv": float(p[1]), "player_boost": float(p[2]),
@@ -1941,7 +2577,11 @@ def super_optimize(csv_file=GAMES_FILE):
 
     # ── Tighten bounds around overall best ────────────────────────────
     def _tight(val, lo, hi, hw):
-        return (max(lo, val - hw), min(hi, val + hw))
+        tlo = max(lo, val - hw)
+        thi = min(hi, val + hw)
+        if tlo >= thi:
+            tlo, thi = lo, hi
+        return (tlo, thi)
 
     bp = overall_best_params
     tight_bounds = [

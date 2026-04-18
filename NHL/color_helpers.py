@@ -13,9 +13,13 @@ if sys.platform == "win32":
     except Exception:
         pass
 
-from colorama import init as colorama_init, Fore, Back, Style
-
-colorama_init(autoreset=True)
+try:
+    from colorama import init as colorama_init, Fore, Back, Style
+    colorama_init(autoreset=True)
+except ImportError:
+    class _Dummy:
+        def __getattr__(self, _): return ""
+    Fore = Back = Style = _Dummy()
 
 # Test whether stdout can actually print Unicode after all the above
 _USE_UNICODE = False

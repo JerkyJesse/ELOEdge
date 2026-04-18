@@ -94,8 +94,27 @@ def download_recent_games(csv_file=GAMES_FILE):
     logging.info("Downloading NBA games from %s via nba_api LeagueGameLog...", date_from)
     try:
         all_games = []
-        all_games.extend(_fetch_and_process_season_type(season_str, "Regular Season", date_from))
-        all_games.extend(_fetch_and_process_season_type(season_str, "Playoffs", date_from))
+        failed_chunks = []
+        consecutive_fails = 0
+        total_chunks = 2
+        try:
+            all_games.extend(_fetch_and_process_season_type(season_str, "Regular Season", date_from))
+            consecutive_fails = 0
+        except Exception as chunk_err:
+            logging.warning("  Regular Season fetch failed: %s", chunk_err)
+            consecutive_fails += 1
+            failed_chunks.append((date_from, "Regular Season"))
+        try:
+            all_games.extend(_fetch_and_process_season_type(season_str, "Playoffs", date_from))
+            consecutive_fails = 0
+        except Exception as chunk_err:
+            logging.warning("  Playoffs fetch failed: %s", chunk_err)
+            consecutive_fails += 1
+            failed_chunks.append((date_from, "Playoffs"))
+        if consecutive_fails >= 2:
+            logging.critical("⚠ %d consecutive API failures — possible data gap from %s to present", consecutive_fails, date_from)
+        if failed_chunks:
+            logging.warning("Data fetch completed with %d failed chunks out of %d total", len(failed_chunks), total_chunks)
         if not all_games and existing_df is None:
             logging.warning("No games retrieved.")
             return csv_file if os.path.exists(csv_file) else None

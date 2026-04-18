@@ -52,10 +52,23 @@ def is_in_season(sport, dt=None):
 
 
 def is_game_day(sport, dt=None):
-    """Check if today is a typical game day for this sport."""
+    """Check if today is a typical game day for this sport.
+
+    Accounts for timezone differences: if it's before 6 AM local time,
+    also consider yesterday a game day since West Coast games (10pm+ ET)
+    may still be in progress or just finished past midnight.
+    """
     if dt is None:
         dt = datetime.now()
-    return dt.weekday() in GAME_DAYS.get(sport.lower(), list(range(7)))
+    game_days = GAME_DAYS.get(sport.lower(), list(range(7)))
+    if dt.weekday() in game_days:
+        return True
+    # Before 6 AM, a late game from yesterday may still be relevant
+    if dt.hour < 6:
+        yesterday = (dt - timedelta(days=1)).weekday()
+        if yesterday in game_days:
+            return True
+    return False
 
 
 def smart_cache_stale(filepath, sport, data_type="games",

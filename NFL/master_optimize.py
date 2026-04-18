@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 """Master optimization script -- runs ALL optimization methods sequentially.
 
+Uses ACCURACY-FIRST objective: (100 - accuracy) + brier * 5.0
+Leverages the vectorized fast_evaluate backtest engine for speed.
+
 Works in any sport directory (NHL, NFL, MLB, NBA). Each sport has identical
 file structure; the script auto-detects sport from the directory name and
 imports the correct modules.
@@ -50,6 +53,13 @@ SPORT_UPPER = SPORT.upper()
 from config import GAMES_FILE, load_elo_settings, save_elo_settings
 from data_players import load_player_stats
 
+# ── Vectorized backtest engine imports ─────────────────────────
+try:
+    from backtest import fast_evaluate, _precompute_games, _fill_precomputed
+    _HAS_FAST_EVALUATE = True
+except ImportError:
+    _HAS_FAST_EVALUATE = False
+
 # Import Elo class dynamically based on sport
 import importlib as _importlib
 _elo_mod = _importlib.import_module("elo_model")
@@ -96,18 +106,60 @@ def elapsed_str(seconds):
         return "%dh %dm %ds" % (seconds // 3600, (seconds % 3600) // 60, seconds % 60)
 
 
-# ── Result tracking ─────────────────────────────────────────────
+# ── Progress persistence (pause/resume) ────────────────────────
+_PROGRESS_FILE = os.path.join(_SCRIPT_DIR, "%s_optimize_progress.json" % SPORT)
 _results = {}  # phase_num -> {status, elapsed, metrics, error}
 
 
+def _save_progress():
+    """Save current progress to disk for resume."""
+    progress = {
+        "sport": SPORT,
+        "completed_phases": [p for p, r in _results.items() if r["status"] in ("OK", "NO_IMPROVEMENT", "NO_RESULT")],
+        "failed_phases": [p for p, r in _results.items() if r["status"] in ("FAILED", "ERROR")],
+        "results": {str(k): v for k, v in _results.items()},
+        "saved_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+    }
+    try:
+        with open(_PROGRESS_FILE, "w") as f:
+            json.dump(progress, f, indent=2, default=str)
+    except Exception:
+        pass
+
+
+def _load_progress():
+    """Load previous progress for resume."""
+    if not os.path.exists(_PROGRESS_FILE):
+        return set()
+    try:
+        with open(_PROGRESS_FILE) as f:
+            progress = json.load(f)
+        completed = set(progress.get("completed_phases", []))
+        # Also restore results for summary
+        for k, v in progress.get("results", {}).items():
+            _results[int(k)] = v
+        return completed
+    except Exception:
+        return set()
+
+
+def _clear_progress():
+    """Delete progress file (fresh start)."""
+    try:
+        os.remove(_PROGRESS_FILE)
+    except Exception:
+        pass
+
+
 def record_result(phase, status, elapsed, metrics=None, error=None):
-    """Record the result of a phase."""
+    """Record the result of a phase and save progress."""
     _results[phase] = {
         "status": status,
         "elapsed": elapsed,
         "metrics": metrics or {},
         "error": error,
     }
+    _save_progress()
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -159,7 +211,7 @@ def phase_2_accuracy_optimize():
     proc = subprocess.run(
         [sys.executable, script_path],
         cwd=_SCRIPT_DIR,
-        timeout=7200,  # 2 hour timeout
+        timeout=36000,  # 2 hour timeout
         capture_output=False,
     )
     elapsed = time.time() - t0
@@ -595,12 +647,41 @@ def main():
         "--only", type=int, nargs="*", default=None,
         help="Run ONLY these phases (e.g., --only 1 2 10)",
     )
+    parser.add_argument(
+        "--resume", action="store_true",
+        help="Resume from last saved progress (skip completed phases)",
+    )
+    parser.add_argument(
+        "--fresh", action="store_true",
+        help="Clear saved progress and start from scratch",
+    )
     args = parser.parse_args()
+
+    # Handle fresh start
+    if args.fresh:
+        _clear_progress()
+        print("  Cleared saved progress -- starting fresh.")
+
+    # Load completed phases for resume
+    completed_phases = set()
+    if args.resume:
+        completed_phases = _load_progress()
+        if completed_phases:
+            print("  Resuming: phases %s already completed" % sorted(completed_phases))
+        else:
+            print("  No saved progress found -- starting from beginning.")
 
     if args.only is not None:
         phases_to_run = [p for p in args.only if p in PHASE_MAP]
     else:
         phases_to_run = [p for p in ALL_PHASES if p not in (args.skip or [])]
+
+    # Skip completed phases when resuming
+    if completed_phases:
+        skipped = [p for p in phases_to_run if p in completed_phases]
+        phases_to_run = [p for p in phases_to_run if p not in completed_phases]
+        if skipped:
+            print("  Skipping already-completed phases: %s" % skipped)
 
     # Verify game data exists
     if not os.path.exists(GAMES_FILE):
@@ -608,12 +689,32 @@ def main():
         print(cerr("Run main.py first to download game data."))
         sys.exit(1)
 
+    print("Using ACCURACY-FIRST objective with vectorized backtest engine")
+
+    # ── Pre-warm vectorized fast_evaluate cache ────────────────
+    _prewarmed_cache = None
+    if _HAS_FAST_EVALUATE:
+        try:
+            t_pw = time.time()
+            _prewarmed_cache = _precompute_games(GAMES_FILE)
+            print("  Vectorized cache pre-warmed in %.1fs (%d games)"
+                  % (time.time() - t_pw, _prewarmed_cache.get("n", 0) if isinstance(_prewarmed_cache, dict) else len(getattr(_prewarmed_cache, "home_teams", []))))
+        except Exception as e:
+            print("  (fast_evaluate pre-warm skipped: %s)" % e)
+            _prewarmed_cache = None
+    else:
+        print("  (fast_evaluate not available -- phases will use their own caching)")
+
     banner("MASTER %s OPTIMIZATION" % SPORT_UPPER, width=72)
     print("  Sport:     %s" % SPORT_UPPER)
     print("  Data:      %s" % GAMES_FILE)
     print("  Directory: %s" % _SCRIPT_DIR)
     print("  Phases:    %s" % phases_to_run)
+    print("  Engine:    ACCURACY-FIRST vectorized (fast_evaluate)" if _HAS_FAST_EVALUATE else "  Engine:    standard backtest")
+    print("  Objective: (100 - accuracy) + brier * 5.0")
+    print("  Resume:    %s" % ("yes (skipped %d)" % len(completed_phases) if completed_phases else "no"))
     print("  Start:     %s" % time.strftime("%Y-%m-%d %H:%M:%S"))
+    print("  Ctrl+C to pause -- rerun with --resume to continue")
 
     total_start = time.time()
 
@@ -626,9 +727,13 @@ def main():
         try:
             func()
         except KeyboardInterrupt:
-            print(cerr("\n\n  Keyboard interrupt -- stopping master optimization."))
+            print(cerr("\n\n  PAUSED -- progress saved to %s" % os.path.basename(_PROGRESS_FILE)))
+            print(cerr("  Rerun with --resume to continue from phase %d" % phase_num))
             record_result(phase_num, "INTERRUPTED", time.time() - total_start)
-            break
+            _save_progress()
+            total_elapsed = time.time() - total_start
+            phase_11_summary(total_elapsed)
+            sys.exit(0)
         except Exception as e:
             elapsed_so_far = time.time() - total_start
             error_msg = "%s: %s" % (type(e).__name__, e)
@@ -639,6 +744,12 @@ def main():
             print(cwarn("  Continuing to next phase..."))
 
     total_elapsed = time.time() - total_start
+
+    # All phases done -- clear progress file
+    if not any(r["status"] == "INTERRUPTED" for r in _results.values()):
+        _clear_progress()
+        print("\n  All phases complete -- progress file cleared.")
+
     phase_11_summary(total_elapsed)
 
 

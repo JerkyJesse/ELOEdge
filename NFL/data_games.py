@@ -109,6 +109,9 @@ def download_recent_games(csv_file=GAMES_FILE):
     seasons_to_fetch = [current_season - 1, current_season]
 
     all_games = []
+    failed_chunks = []
+    consecutive_fails = 0
+    total_chunks = 0
     for season_year in seasons_to_fetch:
         months = [
             ("%d0901" % season_year,     "%d0930" % season_year),
@@ -127,9 +130,20 @@ def download_recent_games(csv_file=GAMES_FILE):
                         continue
                 except ValueError:
                     pass
+            total_chunks += 1
             games = _fetch_espn_daterange(date_start, date_end)
+            if not games:
+                consecutive_fails += 1
+                failed_chunks.append((date_start, date_end))
+                if consecutive_fails >= 3:
+                    logging.critical("⚠ %d consecutive API failures — possible data gap from %s to %s", consecutive_fails, date_start, date_end)
+            else:
+                consecutive_fails = 0
             all_games.extend(games)
             time.sleep(0.5)
+
+    if failed_chunks:
+        logging.warning("Data fetch completed with %d failed chunks out of %d total", len(failed_chunks), total_chunks)
 
     if not all_games and existing_df is None:
         logging.warning("No games retrieved from ESPN.")

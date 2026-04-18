@@ -1,0 +1,75 @@
+{
+  "sport": "nba",
+  "completed_phases": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7
+  ],
+  "failed_phases": [],
+  "results": {
+    "1": {
+      "status": "OK",
+      "elapsed": 4482.666342496872,
+      "metrics": {
+        "params_optimized": 11
+      },
+      "error": null
+    },
+    "2": {
+      "status": "OK",
+      "elapsed": 2308.959234237671,
+      "metrics": {},
+      "error": null
+    },
+    "3": {
+      "status": "OK",
+      "elapsed": 1078.1652512550354,
+      "metrics": {
+        "accuracy": 70.85811384876806,
+        "log_loss": 0.6045250060584462,
+        "brier": 0.20348979520798197,
+        "source": "Genetic"
+      },
+      "error": null
+    },
+    "4": {
+      "status": "OK",
+      "elapsed": 7253.935980081558,
+      "metrics": {},
+      "error": null
+    },
+    "5": {
+      "status": "OK",
+      "elapsed": 575.4996356964111,
+      "metrics": {},
+      "error": null
+    },
+    "6": {
+      "status": "OK",
+      "elapsed": 5406.115343332291,
+      "metrics": {
+        "accuracy": 66.29,
+        "log_loss": 0.6189,
+        "brier": 0.2107,
+        "n_predictions": 976
+      },
+      "error": null
+    },
+    "7": {
+      "status": "OK",
+      "elapsed": 204454.403860569,
+      "metrics": {
+        "accuracy": 65.57,
+        "log_loss": 0.6211,
+        "brier": 0.2116,
+        "n_evaluations": 704
+      },
+      "error": null
+    }
+  },
+  "saved_at": "2026-04-17 06:55:51"
+}

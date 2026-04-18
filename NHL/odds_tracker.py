@@ -31,12 +31,13 @@ SHARP_BOOKS = ["pinnacle", "betfair_ex_us", "betonlineag", "bovada", "fanduel", 
 
 
 def _get_api_key():
-    """Get API key from env or key file."""
+    """Get API key from env var (preferred) or key file (fallback)."""
     key = os.environ.get("ODDS_API_KEY", "")
     if key:
         return key
     key_file = os.path.join(os.path.dirname(__file__), ".odds_api_key")
     if os.path.exists(key_file):
+        logging.warning("ODDS_API_KEY not in environment, falling back to .odds_api_key file. Consider setting ODDS_API_KEY env var.")
         with open(key_file, "r") as f:
             return f.read().strip()
     return ""

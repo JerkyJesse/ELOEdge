@@ -173,23 +173,28 @@ def fetch_weather(lat, lon, game_datetime=None):
         resp.raise_for_status()
         data = resp.json()
 
-        hourly = data.get("hourly", {})
-        temps = hourly.get("temperature_2m", [])
-        humidity = hourly.get("relative_humidity_2m", [])
-        weather_code = hourly.get("weather_code", [])
-        wind_speed = hourly.get("wind_speed_10m", [])
-        wind_dir = hourly.get("wind_direction_10m", [])
-        wind_gust = hourly.get("wind_gusts_10m", [])
+        hourly = data.get("hourly") or {}
+        temps = hourly.get("temperature_2m") or []
+        humidity = hourly.get("relative_humidity_2m") or []
+        weather_code = hourly.get("weather_code") or []
+        wind_speed = hourly.get("wind_speed_10m") or []
+        wind_dir = hourly.get("wind_direction_10m") or []
+        wind_gust = hourly.get("wind_gusts_10m") or []
 
         # Archive has precipitation (mm), forecast has precipitation_probability (%)
         if is_historical:
-            precip_mm = hourly.get("precipitation", [])
+            precip_mm = hourly.get("precipitation") or []
         else:
             precip_mm = []
-        precip_prob = hourly.get("precipitation_probability", [])
+        precip_prob = hourly.get("precipitation_probability") or []
+
+        # If API returned no hourly data at all, bail out
+        if not temps:
+            logging.warning("Weather API returned no temperature data for %.4f,%.4f on %s", lat, lon, date_str)
+            return None
 
         # Get the hour closest to game time
-        idx = min(hour, len(temps) - 1) if temps else 0
+        idx = min(hour, len(temps) - 1)
 
         # For historical data, convert precipitation mm to an approximate probability
         if is_historical and idx < len(precip_mm):

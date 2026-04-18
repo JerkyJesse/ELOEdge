@@ -1,1054 +1,518 @@
-# SharpStack-NFL -- 35-Model Mega-Ensemble
+# NFL Prediction System (SharpStack)
 
-A production-grade NFL game prediction system that fuses 35 independent models -- spanning Elo ratings, gradient boosting, Hidden Markov Models, Kalman filters, PageRank, neural networks, survival analysis, information theory, game theory, and classical football analytics -- into a single calibrated probability through a walk-forward meta-learner. Every model trains on real NFL data pulled from completely free APIs (ESPN public API, nfl_data_py/nflverse play-by-play, ESPN injuries, Open-Meteo weather). The system includes a full Predicts $1 binary contract trading ledger with Kelly criterion position sizing, live score tracking, auto-settlement, and monthly P&L charting. All 17-game-season parameters are tuned through a 7-phase exhaustive optimizer with multithreaded backtesting and optional GPU acceleration.
+## Overview
 
-**32 NFL teams** | **35 models** | **90+ tunable parameters** (21 Elo + 72 per-model) | **7-phase per-model optimizer** | **No paid APIs**
+NFL game prediction system that combines Elo ratings with a 36-model mega-ensemble to produce calibrated win probabilities for every NFL matchup. The system integrates a Predicts $1 binary contract trading ledger for position tracking and P&L analysis. It runs as an interactive CLI application -- no web server, no test framework, no build system.
+
+NFL-specific design priorities: weekly game cadence with rest days centered at 7, bye week detection and boost, Thursday Night Football short-turnaround penalties, smaller dataset (~272 regular-season games per year across 32 teams), win streak momentum as a strong signal, high home field advantage variance across venues, advanced EPA/CPOE stats via nflverse play-by-play data, weather impact for outdoor stadiums, and position-based injury scoring (QB injury = -50 Elo).
 
 ---
 
 ## Quick Start
 
 ```bash
-# 1. Clone and enter directory
-git clone https://github.com/JerkyJesse/SharpStack-NFL.git
-cd SharpStack-NFL
-
-# 2. Install dependencies
 pip install -r requirements.txt
-
-# 3. (Optional) Install PyTorch for neural network models (CPU-only)
-pip install torch --index-url https://download.pytorch.org/whl/cpu
-
-# 4. Launch
 python main.py
 ```
 
-**First-time workflow:**
+On first launch the system will:
+1. Download two years of game data via the ESPN public API
+2. Download player stats (passing, rushing, receiving leaders)
+3. Fetch injury reports from the ESPN API
+4. Build Elo ratings for all 32 NFL teams
+5. Run a walk-forward backtest to fit the Platt calibration scaler
+6. Enter the interactive CLI loop
 
-```
-1. System auto-downloads 2 years of NFL game data via ESPN API
-2. System auto-downloads passing/rushing/receiving leaders, injury reports
-3. Baseline backtest runs automatically (fits Platt calibration scaler)
-4. Enter starting balance when prompted (for contract tracking)
-5. Type a team name (e.g. "Chiefs") to make your first prediction
-6. Run 'mega' for the full 35-model ensemble backtest
-7. Run 'mega tune' to solo-test each model's optimal settings
-8. Run 'mega optimize' for full 7-phase per-model optimization
-```
-
-On startup, the system downloads and caches all required data, builds the Elo model with season regression, runs a baseline backtest with Platt calibration, and drops you into the interactive command loop. No API keys are needed for core functionality -- the ESPN public API, nfl_data_py/nflverse, ESPN injuries, and Open-Meteo weather are all completely free.
+Type a team name (e.g. `Chiefs`) to start a prediction. Type `help` for all commands.
 
 ---
 
-## The 35 Models
+## Commands
 
-Every model runs independently on the same game-by-game walk-forward loop. Their raw outputs feed into the meta-learner, which produces a single calibrated adjustment bounded by `max_adj`.
+### Data and Display
+| Command | Description |
+|---------|-------------|
+| `all` | Show all 32 teams ranked by Elo rating |
+| `refresh` | Delete cached data and re-download everything, rebuild model |
+| `players` | Show top player stats and composite scores |
+| `settings` | Display current Elo parameter values |
+| `injuries` | Show injury report with position-based Elo impact per team |
+| `injuries set <team> <player1>, <player2>` | Manually mark players as OUT |
+| `today` / `html` | Generate Blogger-ready HTML predictions for today's games |
+| `tomorrow` | Generate predictions for tomorrow's games |
 
-### Tier 0 -- Core (Always On)
+### Data Enrichment
+| Command | Description |
+|---------|-------------|
+| `odds` | Show live moneyline odds from The Odds API |
+| `kalshi` | Show Kalshi prediction market contract prices |
+| `weather` | Show weather report for outdoor games |
+| `advstats` | Show EPA/CPOE/success rate advanced stats rankings |
 
-| # | Model | Year | Method | Description |
-|---|-------|------|--------|-------------|
-| 1 | **Elo** | 1960 | Paired comparison rating | 24+ adjusters: home field advantage, MOV, rest/bye week, travel, altitude (Denver), form, SOS, divisional rivalry, conference, playoff detection. All 32 NFL teams tracked. K=17.30 tuned for the 17-game season with logarithmic MOV dampening. |
-| 2 | **XGBoost** | 2016 | Gradient boosted trees | 93 rolling features per game (win%, Pythagorean expectation, streaks, scoring consistency, trend, rest days, travel). Walk-forward training with 80/20 Elo/XGBoost blend. SHAP feature importance built in. |
+### Backtesting
+| Command | Description |
+|---------|-------------|
+| `backtest` | Run walk-forward backtest, fit Platt scaler, report accuracy/log loss/Brier |
+| `enhanced` | Run Elo + XGBoost ensemble backtest (80/20 blend) |
+| `enhanced decay` | Run time-decayed ensemble (Elo 95% early to 70% late) |
 
-### Tier 1 -- Proven Models
+### Elo Optimization
+| Command | Description |
+|---------|-------------|
+| `grid` | Grid search over 7 Elo parameters |
+| `genetic` | Differential evolution optimizer |
+| `bayesian` | GP surrogate + Expected Improvement optimizer |
+| `autoopt` | Automatic grid then genetic then bayesian pipeline |
+| `superopt` | Exhaustive 7-phase optimization (takes hours) |
+| `singleopt` | Coordinate descent (one parameter at a time) |
+| `results` | Show optimization results with DSR significance |
 
-| # | Model | Year | Method | Description |
-|---|-------|------|--------|-------------|
-| 3 | **HMM** | 1966 | Hidden Markov Model | Detects latent hot/cold team states from win/loss sequences. Forward-backward algorithm estimates state probabilities. Captures momentum shifts invisible to pure ratings. |
-| 4 | **Kalman** | 1960 | Kalman Filter | Treats true team strength as a hidden state with process noise. Bayesian updates after each game. Provides uncertainty estimates alongside point predictions. |
-| 5 | **PageRank** | 1998 | Network analysis | Builds directed win graph, runs PageRank + HITS authority scores. Teams that beat strong teams get more credit. Temporal decay weights recent results. |
-| 6 | **LightGBM** | 2017 | Leaf-wise gradient boosting | Microsoft's fast GBM with leaf-wise splits. Handles categorical features natively. Lower memory than XGBoost with comparable accuracy. |
-| 7 | **CatBoost** | 2017 | Ordered gradient boosting | Yandex's ordered boosting prevents target leakage during training. Handles categorical features with target statistics. Robust to overfitting. |
-| 8 | **MLP** | 1986 | Multi-layer perceptron | PyTorch feedforward neural network with batch normalization and dropout. Learns nonlinear feature interactions that tree models miss. |
-| 9 | **LSTM** | 1997 | Long Short-Term Memory | Recurrent neural network that models sequential game patterns. Captures long-range dependencies in team performance trajectories. Off by default (slow). |
+### Validation
+| Command | Description |
+|---------|-------------|
+| `purgedcv` | Purged walk-forward cross-validation (k folds with embargo) |
+| `cpcv` | Combinatorial purged cross-validation (all path combinations) |
+| `pbo` | Probability of backtest overfitting |
+| `montecarlo` | Monte Carlo permutation test (500 shuffles, ~8 min) |
+| `convergence` | Elo convergence analysis (find burn-in period) |
+| `sliding` | Sliding window vs expanding window comparison |
 
-### Tier 2 -- Exotic / Physics-Inspired
+### Calibration
+| Command | Description |
+|---------|-------------|
+| `rollingcal` | Rolling-origin recalibration (out-of-sample Platt) |
+| `betacal` | Beta calibration (3-parameter asymmetric) |
+| `conformal` | Conformal prediction sets at 80/90/95% coverage |
 
-| # | Model | Year | Method | Description |
-|---|-------|------|--------|-------------|
-| 10 | **GARCH** | 1986 | Volatility modeling | Generalized AutoRegressive Conditional Heteroskedasticity. Models time-varying volatility in scoring. High-variance teams are harder to predict. |
-| 11 | **Fourier** | 1822 | Cycle detection | Fourier transforms + wavelet analysis on scoring time series. Detects periodic patterns and seasonal rhythms in team performance across a 17-game schedule. |
-| 12 | **Survival** | 1958 | Hazard modeling | Cox proportional hazards applied to win/loss streaks. Models the probability that a streak ends given its length and covariates. |
-| 13 | **Copula** | 1959 | Joint dependency | Models the dependency structure between offensive and defensive performance using copula functions. Captures teams where offense/defense move together vs independently. |
+### Analysis
+| Command | Description |
+|---------|-------------|
+| `shap` | SHAP feature importance for XGBoost model |
+| `kelly` | Kelly Criterion bankroll simulation (quarter-Kelly default) |
 
-### Tier 3 -- Information & Physics
+### Mega-Ensemble (36 Models)
+| Command | Description |
+|---------|-------------|
+| `mega` | Run full mega-ensemble backtest |
+| `mega optimize` | 7-phase per-model optimization (all phases, takes hours) |
+| `mega quick` / `mega tune` | Quick optimization (Phases 0-1 only) |
+| `mega tournament` | Head-to-head model comparison (Phase 2) |
+| `mega ablation` | Ablation study, auto-prune weak models |
+| `mega models` | Show all models with ON/OFF status by tier |
+| `mega on <model>` / `mega off <model>` | Enable/disable individual models |
+| `mega settings` | Show all mega parameter values |
+| `mega set <param>=<value>` | Set mega parameter (e.g., `mega set max_adj=0.10`) |
 
-| # | Model | Year | Method | Description |
-|---|-------|------|--------|-------------|
-| 14 | **Info Theory** | 1948 | Shannon entropy + KL divergence | Measures predictability of each team's scoring distribution. High-entropy teams are chaotic; low-entropy teams are predictable. KL divergence quantifies matchup asymmetry. |
-| 15 | **Momentum** | 1687 | Newtonian mechanics analogy | Treats team strength as a physical object with mass (games played) and velocity (recent trend). Friction coefficient controls decay. Captures inertia in form. |
-| 16 | **Markov Chain** | 1906 | Transition matrices | Models sequences of outcomes (W/L/close-W/blowout-W) as Markov transitions. Stationary distribution gives long-run expected state probabilities. |
-| 17 | **Clustering** | 1957 | k-Means archetypes | Groups teams into archetypes (e.g., high-offense/low-defense, balanced, defense-dominant). Matchup predictions based on how archetype pairs historically perform. |
-| 18 | **Game Theory** | 1950 | Nash equilibrium | Models strategic matchups: power run vs pass-heavy, offense vs defense. Computes Nash equilibrium strategies and style-based advantages. |
+### Trading
+| Command | Description |
+|---------|-------------|
+| `predicts` / `summary` | Show full P&L ledger with win rate and ROI |
+| `balance` | Show current account balance |
+| `deposit` / `withdraw` | Add or remove cash from account |
+| `resolve` | Manually settle open positions (win/loss) |
+| `autoresolve` | Auto-settle finished trades from live final scores |
+| `autoresolve on` / `autoresolve off` | Toggle auto-resolve on startup |
+| `sell` | Exit a position early at a specified price |
+| `mark` | Update mark-to-market prices on open positions |
+| `invert` | Flip a position's direction without changing cost basis |
+| `chart` | Generate monthly P&L bar chart |
+| `live` | Show live scores for open positions (60s refresh) |
+| `portfolio` | Cross-sport portfolio summary |
 
-### Tier 4 -- Classical Rating Systems
+### Elo Settings
+Type `set` to see all tunable parameters. Examples:
+```
+set k=17.3          set home=18         set boost=27
+set rest=30         set b2b=4           set travel=25
+set pace=4          set div=31          set streak=32
+set altitude=0.67   set playoff=2.0     set phase=32
+set kelly=quarter   set balance=50      set autoresolve=true
+```
 
-| # | Model | Year | Method | Description |
-|---|-------|------|--------|-------------|
-| 19 | **Poisson** | 1898 | Dixon-Coles score distribution | Models point scoring as Poisson-distributed. Dixon-Coles correction for low-scoring games. Produces full score probability matrix for each matchup. |
-| 20 | **Glicko-2** | 2001 | Uncertainty-aware ratings | Extends Elo with rating deviation (confidence interval) and volatility. Teams with fewer recent games have wider uncertainty. More principled than fixed-K Elo. |
-| 21 | **Bradley-Terry** | 1952 | Maximum likelihood paired comparison | MLE estimation of team strengths from pairwise outcomes. Recency-weighted decay ensures recent games matter more. Clean probabilistic framework. |
-| 22 | **Monte Carlo** | 1940s | Stochastic simulation | Runs 3,000 game simulations per matchup using historical scoring distributions. Produces win probability from simulation outcomes. |
-| 23 | **Random Forest** | 2001 | Bagged decision trees | Ensemble of decorrelated decision trees. Provides diversity to the meta-learner -- different inductive bias from boosted methods. |
-
-### Tier 5 -- Classical Football / Sports Models
-
-| # | Model | Year | Method | Description |
-|---|-------|------|--------|-------------|
-| 24 | **SRS** | ~1980s | Simple Rating System | Average margin of victory adjusted for strength of schedule. Iterative convergence. The backbone of many newspaper power rankings. |
-| 25 | **Colley** | 2001 | Colley Matrix | Bias-free ranking using only wins and losses. Solves a linear system -- no preseason assumptions, no margin of victory. Used by the BCS. |
-| 26 | **Log5** | 1981 | Bill James formula | The original sabermetric head-to-head formula: P(A beats B) = (pA - pA*pB) / (pA + pB - 2*pA*pB). Elegant and theoretically grounded. |
-| 27 | **Pythagorean** | ~1980s | Pythagorean expected win% | Points-scored / points-allowed formula with exponent ~2.37 for NFL. Converts scoring margins into expected win rates. A cornerstone of football analytics. |
-| 28 | **Exp Smoothing** | 1957 | Exponential smoothing | Holt-Winters style smoothing on team performance metrics. Captures level, trend, and seasonality in scoring. Simple but effective trend tracker. |
-| 29 | **Mean Reversion** | ~1990s | Bollinger band analog | Identifies teams performing above/below their "true" level using a z-score band approach. Teams far from the mean are expected to regress. |
-
-### Tier 6 -- Data Enrichment
-
-| # | Model | Year | Method | Description |
-|---|-------|------|--------|-------------|
-| 30 | **Weather** | -- | Environmental impact | Temperature, wind speed, humidity, precipitation probability. Open-Meteo API (free, no key). Adjusts predictions for extreme weather -- critical for outdoor NFL stadiums in winter. Off by default. |
-| 31 | **Odds** | -- | Market consensus | Ingests moneyline odds from The Odds API. Closing Line Value (CLV) tracking. Markets are efficient -- odds provide a strong independent signal. Off by default (requires free API key). |
-
-### Tier 7 -- Novel / Experimental
-
-| # | Model | Year | Method | Description |
-|---|-------|------|--------|-------------|
-| 32 | **SVM** | 2026 | Support Vector Machine | RBF kernel with Platt scaling, maximum-margin classifier |
-| 33 | **Fibonacci** | 2026 | Fibonacci Retracement | EMA-smoothed performance swings with support/resistance levels |
-| 34 | **EVT** | 2026 | Extreme Value Theory | Generalized Pareto distribution for tail risk analysis |
-| 35 | **Benford** | 2026 | Benford's Law | Chi-squared scoring pattern anomaly detection |
+After any parameter change, run `backtest` to refit the Platt calibration scaler.
 
 ---
 
 ## Architecture
 
-```
-                         ESPN PUBLIC API           NFL_DATA_PY / NFLVERSE
-                        (games, scores)         (EPA, CPOE, success rate)
-                             |                         |
-                   ESPN INJURIES API             OPEN-METEO WEATHER
-                    (IR, Doubtful, Out)          (temp, wind, precip)
-                             |                         |
-                   +---------+---------+---------------+
-                   |                                   |
-                   v                                   v
-            +------+-------+                  +--------+--------+
-            |  DATA LAYER  |                  | ADVANCED STATS  |
-            | data_games   |                  | advanced_stats  |
-            | data_players |                  | (EPA/CPOE/Refs) |
-            +--------------+                  +-----------------+
-                   |                                   |
-                   +-----------------------------------+
-                   |
-                   v
-  +=====================================+
-  |         ELO ENGINE (Tier 0)         |
-  |  NFLElo class -- 32 teams           |
-  |  24 adjustment factors              |
-  |  Season regression (33%)            |
-  |  Platt/Isotonic/Beta calibration    |
-  +=====================================+
-                   |
-                   | Elo probability (anchor)
-                   |
-  +=====================================+
-  |    35 BASE MODEL PREDICTIONS        |
-  |                                     |
-  |  [Tier 0] Elo, XGBoost             |
-  |  [Tier 1] HMM, Kalman, PageRank,   |
-  |           LightGBM, CatBoost,       |
-  |           MLP, LSTM                 |
-  |  [Tier 2] GARCH, Fourier,          |
-  |           Survival, Copula          |
-  |  [Tier 3] InfoTheory, Momentum,    |
-  |           Markov, Clustering,       |
-  |           GameTheory                |
-  |  [Tier 4] Poisson, Glicko, B-T,    |
-  |           MonteCarlo, RandomForest  |
-  |  [Tier 5] SRS, Colley, Log5,       |
-  |           Pythagorean, ExpSmooth,   |
-  |           MeanReversion             |
-  |  [Tier 6] Weather, Odds            |
-  |                                     |
-  |  All models run in PARALLEL via     |
-  |  ThreadPoolExecutor                 |
-  +=====================================+
-                   |
-                   | Vector of 35 probabilities
-                   v
-  +=====================================+
-  |       META-LEARNER (Stacker)        |
-  |                                     |
-  |  Ridge / Logistic / XGBoost         |
-  |  Walk-forward retrain every N games |
-  |  min_train warmup period            |
-  |  Trains on base model outputs only  |
-  +=====================================+
-                   |
-                   | Raw adjustment delta
-                   v
-  +=====================================+
-  |   ELO-ANCHORED BOUNDED ADJUSTMENT   |
-  |                                     |
-  |  final = elo_prob + clamp(          |
-  |    meta_adjustment, -max_adj,       |
-  |    +max_adj)                        |
-  |                                     |
-  |  Elo is ALWAYS the anchor.          |
-  |  Meta-learner can only nudge the    |
-  |  probability within +/- max_adj     |
-  |  (default 0.10 = 10 percentage      |
-  |   points).                          |
-  +=====================================+
-                   |
-                   v
-         FINAL CALIBRATED PROBABILITY
-                   |
-                   v
-       +---------------------+
-       |  PREDICTION OUTPUT  |
-       |  + Trading Ledger   |
-       |  + HTML Export       |
-       |  + Live Scores      |
-       +---------------------+
-```
+The system uses a three-layer prediction pipeline. Each layer adds refinement on top of the previous one.
 
-### Elo-Anchored Bounded Adjustment
+### Layer 1: Elo Model
 
-The Elo model serves as the anchor probability. The meta-learner (trained on all 35 base model outputs) produces an adjustment that is **clamped** to `+/- max_adj` (default 0.10). This means even if all exotic models disagree with Elo, the final probability can shift at most 10 percentage points. This design prevents catastrophic predictions from untested models while allowing proven signal to improve accuracy.
+The `NFLElo` class in `elo_model.py` maintains Elo ratings for all 32 NFL teams. The base rating is 1500. Each game updates ratings using a configurable K-factor (default 17.30 -- higher than NBA's 8.53 because the 17-game season demands faster responsiveness). The model applies 24+ adjusters:
 
-### Multithreaded Training
+- **Home field advantage** (18.12 Elo, ~52.6% implied home win rate)
+- **Player strength** (26.52 boost -- lower than NBA; football is more team-dependent)
+- **Rest days centered at 7** (30.0 factor -- the weekly NFL schedule makes rest deviations highly impactful)
+- **B2B penalty** (3.93 -- Thursday Night Football short turnaround after Sunday)
+- **Bye week factor** (0.0 -- currently disabled, tunable)
+- **Division rivalry** (30.85 -- much higher than NBA; NFL division games are grinder matchups)
+- **Win streak factor** (32.0 -- momentum matters more in NFL with few games per season)
+- **Season phase factor** (32.0 -- early/mid/late season adjustment)
+- **Altitude** (0.67 -- Denver Broncos at Mile High, 5,280 ft)
+- **Travel fatigue** (25.0 -- timezone-based distance)
+- **Strength of schedule** (20.0 -- much higher than NBA)
+- **Mean reversion** (17.21 -- regression after extreme results)
+- **Playoff HCA factor** (2.0 -- amplified home advantage in playoffs)
+- **Season regression** (33% pull toward mean at season boundaries)
+- **Margin of victory** uses `log(max(1, abs(margin)) + 1)` for dampening NFL blowouts
 
-All 35 base models run inside a `ThreadPoolExecutor`. On a typical 8-core machine, the mega-ensemble backtest completes 3-5x faster than sequential execution. Each model receives the same game-by-game data and produces an independent probability estimate.
+### Layer 2: Enhanced XGBoost Ensemble
 
-### GPU Acceleration
+The `enhanced_model.py` module builds an 80% Elo / 20% XGBoost blended model. The `TeamTracker` class maintains rolling 5-game windows per team (narrower than NBA's 10-game window due to the 17-game season), generating 93 features:
 
-XGBoost, LightGBM, and CatBoost automatically detect CUDA-capable GPUs. If available, tree construction runs on GPU (`tree_method='gpu_hist'` for XGBoost, `device='gpu'` for LightGBM/CatBoost). PyTorch models (MLP, LSTM) also move to GPU when `torch.cuda.is_available()`. CPU fallback is always automatic and silent.
+- Elo probability and rating differential
+- Player strength differential
+- Per-team rolling stats: PPG, PAPG, win%, margins, rest days
+- Pythagorean win expectation (exponent 2.37 -- lower than NBA due to lower-scoring games)
+- Win/loss streaks, scoring consistency, trend indicators
+
+XGBoost is trained walk-forward (no leakage): Elo-only for the first 200 games, then XGBoost trained and retrained every 50 games. Parameters: `max_depth=5, eta=0.03, subsample=0.9, 300 rounds`.
+
+### Layer 3: 36-Model Mega-Ensemble
+
+The `mega_predictor.py` and `mega_backtest.py` modules implement a 36-model stacking ensemble. Each model produces a raw probability independently. A meta-learner (XGBoost, Ridge, or Logistic regression) combines all outputs into a bounded adjustment clamped to +/- `max_adj` (default 0.10) around the Elo anchor probability. All 36 models run in parallel via `ThreadPoolExecutor`.
+
+### Calibration
+
+`platt.py` applies Platt scaling (logistic regression on logit of raw probability) to produce well-calibrated final outputs. Isotonic regression and beta calibration are also available. The Platt scaler is fitted during the `backtest` command and must be refitted after any parameter change.
 
 ---
 
-## NFL-Specific Design Choices
+## The 36 Models
 
-Every parameter in this system was chosen with the specific structure of the National Football League in mind. Here is why each default is what it is:
+### Tier 0 -- Core
+| Model | File | Description |
+|-------|------|-------------|
+| Elo | `elo_model.py` | Base team ratings with 24+ adjusters |
+| XGBoost | `enhanced_model.py` | 93-feature gradient boosting ensemble |
 
-| Parameter | Default | Rationale |
-|-----------|---------|-----------|
-| **K-factor** | 17.30 | NFL plays only 17 regular season games -- far fewer than MLB (162) or NBA (82). A higher K means each individual game moves ratings significantly. Every win and loss matters enormously in a short season, so the system must react quickly. |
-| **Home advantage** | 18.12 Elo (~52.6%) | NFL home teams historically win about 53-57% of games. 18.12 Elo points in the standard Elo formula yields approximately 52.6% expected win rate. Combined with other home-related factors (rest, SOS, division), the effective home win rate reaches observed levels. |
-| **Player scoring weight** | Passing-heavy (26.52) | Quarterback play dominates football outcomes more than any single position in other sports. The player scoring composite weights passing stats (yards, TDs, passer rating) heavily, with rushing and receiving as secondary signals. A QB marked Out costs the team approximately -50 Elo points. |
-| **Rest factor** | 30.0 (centered at 7 days) | NFL teams play weekly, so rest is centered at 7 days instead of 1 day like daily sports. Extra rest (bye week = 14 days, Thursday-to-Sunday = 10 days) or short rest (Sunday-to-Thursday = 4 days) creates significant advantages and disadvantages. The rest advantage is capped at 7.0 to prevent extreme values. |
-| **B2B penalty** | 3.93 | Thursday Night Football and other short-week games (3-4 days rest vs the standard 7) produce measurably worse performance. The 3.93 Elo point penalty captures the fatigue, reduced preparation time, and increased injury risk of short-turnaround games. |
-| **Bye week factor** | 0.0 (disabled) | NFL teams get one bye week per season (a week off with no game). Despite the conventional wisdom that teams play better after a bye, optimization found no statistically significant advantage once rest days are already accounted for by the rest_factor parameter. Currently zeroed out. |
-| **Rolling window** | 5 games | Much narrower than MLB's 15-game window because NFL teams play only 17 games per season. A 5-game window represents nearly a third of the season and captures meaningful form changes without excessive noise. |
-| **Altitude factor** | 0.67 (Denver only) | Only the Denver Broncos play at significant altitude (Empower Field at Mile High, 5,280 ft). The thin air affects passing distance, kicking range, and player stamina. No other NFL stadium has meaningful altitude effects. The bonus is computed from the excess home win rate at altitude vs league average. |
-| **Weather impact** | Critical (outdoor stadiums) | Unlike indoor sports, most NFL games are played outdoors. Snow, rain, wind, and extreme cold dramatically affect passing accuracy, kicking distance, and ball handling. Weather is the most impactful environmental factor in NFL prediction. Open-Meteo provides free forecasts for all 30 outdoor stadiums. |
-| **Playoff HCA factor** | 2.0 | Optimization found that playoff home advantage is significantly amplified compared to regular season. Higher-seeded teams earned homefield; the combination of familiar stadium, rested roster, and playoff atmosphere produces a 2x boost to the standard home advantage. January/February games are auto-detected as postseason. |
-| **Division factor** | 30.85 | Divisional opponents play each other twice per year and have deep familiarity. Games between division rivals (8 divisions: AFC East/North/South/West, NFC East/North/South/West) tend to be closer than talent gaps suggest, reducing the predictive edge of pure ratings. |
-| **Season regression** | 33% | At the start of each new season (September), all ratings regress 33% toward 1500. This accounts for roster turnover, free agency, coaching changes, the NFL Draft, and the reality that last year's team is not this year's team. Detected by month >= 9 in the calendar. |
-| **MOV formula** | log(max(1, abs(margin)) + 1) | Point margins in football follow a roughly logarithmic value curve -- the difference between a 3-point win (field goal) and a 10-point win is much more informative than between a 35-point win and a 42-point win. The log transform prevents garbage-time blowouts from having outsized influence on ratings. |
-| **Season calendar** | September-February (cross-year) | Unlike MLB which runs within one calendar year, the NFL season crosses the new year boundary. If month >= 9, it is the current year's season. If month <= 8, it is the previous year's season. This affects season detection, regression timing, and data partitioning. |
-| **Pythagorean exponent** | ~2.37 | The Pythagorean theorem for football uses an exponent of approximately 2.37 (per Pro Football Reference), reflecting the scoring environment in NFL games. This is much lower than NBA (~14) because football scores are lower and margins are tighter. Used in both the XGBoost feature pipeline and the Pythagorean model. |
-| **Win streak factor** | 32.0 | Momentum matters in football. A team on a 5-game winning streak carries psychological and tactical advantages that pure ratings may not capture. The win_streak_factor adds a momentum signal based on recent consecutive outcomes. |
-| **Homestand factor** | 32.0 | Consecutive home games provide compounding advantages: no travel, familiar surroundings, fan energy, and sleep in own beds. The homestand factor rewards teams playing multiple consecutive home games. |
-| **Season phase factor** | 32.0 | Early-season games (Weeks 1-4) are less predictable because rosters are still gelling, new schemes are being installed, and ratings have not yet converged. This factor dampens confidence in early-season predictions and increases it as the season progresses. |
+### Tier 1 -- Proven
+| Model | File | Description |
+|-------|------|-------------|
+| HMM | `hmm_model.py` | Hidden Markov Model (hot/cold team states) |
+| Kalman | `kalman_model.py` | Kalman filter (latent strength estimation) |
+| PageRank | `network_model.py` | PageRank + HITS network/graph analysis |
+| LightGBM | `gbm_models.py` | LightGBM gradient boosting |
+| CatBoost | `gbm_models.py` | CatBoost gradient boosting |
+| MLP | `nn_models.py` | Multi-layer perceptron neural network |
+| LSTM | `nn_models.py` | Long short-term memory recurrent network |
+
+### Tier 2 -- Exotic
+| Model | File | Description |
+|-------|------|-------------|
+| GARCH | `volatility_model.py` | GARCH volatility + Lyapunov + Hurst exponents |
+| Fourier | `signal_model.py` | Fourier/wavelet cycle detection |
+| Survival | `survival_model.py` | Survival analysis (streak hazard rates) |
+| Copula | `copula_model.py` | Copula offense/defense joint dependency |
+
+### Tier 3 -- Information and Physics
+| Model | File | Description |
+|-------|------|-------------|
+| InfoTheory | `information_theory_model.py` | Shannon entropy + KL divergence |
+| Momentum | `momentum_model.py` | Newtonian momentum/inertia model |
+| Markov | `markov_chain_model.py` | Markov chain transition matrices |
+| Clustering | `clustering_model.py` | k-Means team archetypes |
+| GameTheory | `game_theory_model.py` | Nash equilibrium + style matchups |
+
+### Tier 4 -- Classical Ratings
+| Model | File | Description |
+|-------|------|-------------|
+| Poisson | `poisson_model.py` | Poisson/Dixon-Coles score distributions |
+| Glicko-2 | `glicko_model.py` | Uncertainty-aware ratings |
+| Bradley-Terry | `bradley_terry_model.py` | Maximum likelihood paired comparison |
+| Monte Carlo | `monte_carlo_model.py` | Monte Carlo simulation (2000 sims default) |
+| Random Forest | `random_forest_model.py` | Random Forest bagging diversity |
+
+### Tier 5 -- Sports-Specific
+| Model | File | Description |
+|-------|------|-------------|
+| SRS | `classic_models.py` | Simple Rating System |
+| Colley | `classic_models.py` | Colley Matrix |
+| Log5 | `classic_models.py` | Log5 matchup formula |
+| Pythagorean | `classic_models.py` | Pythagorean win expectation |
+| ExpSmoothing | `classic_models.py` | Exponential smoothing |
+| MeanReversion | `classic_models.py` | Mean reversion model |
+
+### Tier 6 -- Data Enrichment
+| Model | File | Description |
+|-------|------|-------------|
+| Weather | `weather.py` | Open-Meteo weather impact (outdoor games only) |
+| Odds | `odds_tracker.py` | The Odds API moneyline consensus |
+
+### Tier 7 -- Additional
+| Model | File | Description |
+|-------|------|-------------|
+| SVM | `svm_model.py` | SVM classifier (RBF kernel + Platt scaling) |
+| Fibonacci | `fibonacci_model.py` | Fibonacci retracement (EMA-smoothed levels) |
+| EVT | `evt_model.py` | Extreme Value Theory (Generalized Pareto tail risk) |
+| Benford | `benford_model.py` | Benford's Law anomaly detection |
 
 ---
 
-## Complete Command Reference
+## Key Files
 
-### Predictions & Data
-
-| Command | Description | Time |
-|---------|-------------|------|
-| `<team name>` | Start prediction for any team (fuzzy match: `Chiefs`, `pack`, `DAL`, `eagles`) | ~2s |
-| `today` / `html` / `blogger` | Generate HTML prediction table for today's games | ~5s |
-| `tomorrow` | Generate HTML prediction table for tomorrow's games | ~5s |
-| `all` | Show current Elo ratings for all 32 teams, sorted by rating | ~1s |
-| `players` | Show top players by composite score (league-wide or per team) | ~1s |
-| `injuries` | Show current NFL injury report from ESPN with Elo impact | ~3s |
-| `injuries set <team> <player1>, <player2>` | Manually mark players as OUT for a team | instant |
-| `refresh` | Force redownload of all game + player + injury data | ~30s |
-| `odds` | Show today's moneyline odds from The Odds API | ~3s |
-| `weather` | Show weather forecast for a home team's stadium | ~2s |
-| `advstats` / `epa` | Show EPA, CPOE, success rate team rankings via nfl_data_py | ~15s |
-| `officials` | Show referee tendency analysis (home win%, penalty rates) | ~10s |
-
-### Backtesting
-
-| Command | Description | Time |
-|---------|-------------|------|
-| `backtest` | Walk-forward backtest + fit Platt calibration scaler | ~10s |
-| `enhanced` | XGBoost ensemble backtest (80/20 Elo/XGB blend, 93 features) | ~20s |
-| `enhanced decay` | Time-decayed ensemble (95% Elo early -> 70% Elo late season) | ~20s |
-| `shap` | SHAP feature importance analysis for XGBoost features | ~10s |
-| `sliding` | Sliding vs expanding window comparison | ~20s |
-| `convergence` | Elo rating convergence / burn-in analysis | ~10s |
-| `platt` / `calibrate` | Show Platt calibration scaler status and coefficients | instant |
-
-### Elo Optimization
-
-| Command | Description | Time |
-|---------|-------------|------|
-| `grid` | Grid search over K, HomeAdv, PlayerBoost (768+ combos) | ~5-10m |
-| `genetic` | Genetic algorithm optimization (scipy differential evolution) | ~10-20m |
-| `bayesian` | Bayesian optimization with GP surrogate + Expected Improvement | ~10-15m |
-| `autoopt` | Automatic pipeline: grid -> genetic -> bayesian, apply best | ~30-45m |
-| `superopt` | Exhaustive 7-phase optimization, all 9 params (hours) | ~2-4h |
-| `singleopt` | Coordinate descent, one param at a time (accuracy-focused) | ~15-30m |
-| `results` | Show best parameters found across all optimizers + DSR | instant |
-
-### Validation & Statistical Testing
-
-| Command | Description | Time |
-|---------|-------------|------|
-| `purgedcv` | Purged walk-forward cross-validation (k-fold with embargo gap) | ~2m |
-| `cpcv` | Combinatorial purged CV (all C(k, k_test) train/test paths) | ~5m |
-| `pbo` | Probability of backtest overfitting (requires `grid` first) | ~1m |
-| `montecarlo` | Monte Carlo permutation test (500 shuffles, p-value) | ~8m |
-| `rollingcal` | Rolling origin Platt recalibration (expanding OOS window) | ~2m |
-| `conformal` | Conformal prediction intervals (coverage at 80/90/95%) | ~1m |
-| `betacal` | Beta calibration (3-param asymmetric, compare to Platt) | ~1m |
-| `kelly` | Kelly criterion position sizing backtest (bankroll sim) | ~1m |
+### Core System
+| File | Purpose |
+|------|---------|
+| `main.py` | CLI entry point; `dispatch()` routes all commands |
+| `config.py` | Constants, 32 NFL teams, 8 divisions, settings I/O |
+| `elo_model.py` | `NFLElo` class -- ratings, predictions, 24+ adjusters |
+| `build_model.py` | Model construction with season regression and altitude bonus |
+| `data_games.py` | Game data download via ESPN public API |
+| `data_players.py` | Player stats download (passing, rushing, receiving) + team scoring |
+| `backtest.py` | Walk-forward backtest, grid/genetic/bayesian optimizers (~2100 lines) |
+| `enhanced_model.py` | XGBoost ensemble + SHAP + TeamTracker (93 features) |
+| `platt.py` | Platt scaling, isotonic regression, beta calibration |
+| `metrics.py` | Log loss, Brier, ECE, MCE, BSS, conformal prediction |
+| `elo_set_handler.py` | Shared handler for `set param=value` commands |
+| `single_param_opt.py` | Coordinate descent optimizer (one param at a time) |
+| `cache_utils.py` | Season-aware smart caching for all API data |
+| `color_helpers.py` | Terminal color output wrappers (`cok`, `cerr`, `cwarn`, `chi`, `cdim`, `cbold`) |
 
 ### Mega-Ensemble
+| File | Purpose |
+|------|---------|
+| `mega_predictor.py` | `MegaPredictor` class -- live predictions using all 36 models |
+| `mega_backtest.py` | Walk-forward backtest for full mega-ensemble + meta-learner training |
+| `mega_optimizer.py` | 7-phase per-model optimizer (solo, tournament, ablation, DE, validation) |
+| `mega_config.py` | Model registry, on/off switches, per-model hyperparameters |
+| `meta_learner.py` | `MetaLearner` class -- XGBoost/Ridge/Logistic stacking combiner |
 
-| Command | Description | Time |
-|---------|-------------|------|
-| `mega` | Run full mega-ensemble backtest (all enabled models) | ~3-10m |
-| `mega optimize` | 7-phase per-model exhaustive mega optimization (54 hyperparameters) | ~1-3h |
-| `mega tune` | Per-model solo optimization (Phase 1 only) | ~15-30m |
-| `mega tournament` | Head-to-head model tournament (Phase 2 only) | ~15-30m |
-| `mega quick` | Quick grid search only (Phase 1) | ~20-40m |
-| `mega ablation` | Ablation study: test each model's individual contribution | ~30-60m |
-| `mega models` | Show all 35 models with ON/OFF status and tier | instant |
-| `mega on <model>` | Enable a specific model (e.g., `mega on lstm`) | instant |
-| `mega off <model>` | Disable a specific model (e.g., `mega off weather`) | instant |
-| `mega on all` | Enable all 35 models | instant |
-| `mega settings` | Show all mega parameter current values | instant |
-| `mega set <param>=<value>` | Set a mega parameter (e.g., `mega set adj=0.10`) | instant |
+### Individual Model Files
+| File | Models |
+|------|--------|
+| `hmm_model.py` | Hidden Markov Model |
+| `kalman_model.py` | Kalman Filter |
+| `network_model.py` | PageRank + HITS |
+| `gbm_models.py` | LightGBM + CatBoost |
+| `nn_models.py` | MLP + LSTM |
+| `random_forest_model.py` | Random Forest |
+| `volatility_model.py` | GARCH + Lyapunov + Hurst |
+| `signal_model.py` | Fourier + Wavelet |
+| `survival_model.py` | Survival Analysis |
+| `copula_model.py` | Copula |
+| `information_theory_model.py` | Shannon Entropy + KL Divergence |
+| `momentum_model.py` | Newtonian Momentum |
+| `markov_chain_model.py` | Markov Chain |
+| `clustering_model.py` | k-Means Clustering |
+| `game_theory_model.py` | Nash Equilibrium |
+| `poisson_model.py` | Poisson / Dixon-Coles |
+| `glicko_model.py` | Glicko-2 |
+| `bradley_terry_model.py` | Bradley-Terry MLE |
+| `monte_carlo_model.py` | Monte Carlo Simulation |
+| `classic_models.py` | SRS, Colley, Log5, Pythagorean, ExpSmoothing, MeanReversion |
+| `svm_model.py` | SVM Classifier |
+| `fibonacci_model.py` | Fibonacci Retracement |
+| `evt_model.py` | Extreme Value Theory |
+| `benford_model.py` | Benford's Law |
+| `moedim_model.py` | Additional model |
 
-### Trading Ledger
+### Data Enrichment
+| File | Purpose |
+|------|---------|
+| `advanced_stats.py` | EPA, CPOE, success rate, referee tendencies via nfl_data_py |
+| `odds_tracker.py` | Live odds via The Odds API (free tier, 500 req/month), CLV tracking |
+| `weather.py` | Weather impact via Open-Meteo API (free, no key) -- outdoor games only |
+| `kalshi.py` | Kalshi public API for live contract prices + auto-Kelly |
+| `injuries.py` | ESPN injury report + position-based Elo impact scoring |
 
-| Command | Description | Time |
-|---------|-------------|------|
-| `predicts` / `summary` | Show full contract ledger with P&L summary | instant |
-| `balance` | Show current account balance | instant |
-| `resolve` | Settle a finished contract (win/loss outcome) | instant |
-| `sell` | Sell partial or full open position at market price | instant |
-| `mark` | Update current market price on open lots | instant |
-| `invert` | Flip side of an open position (no accounting change) | instant |
-| `chart` | Generate monthly realized P&L bar chart (matplotlib) | ~2s |
-| `live` | Live score tracker + open trade status (60s auto-refresh) | ongoing |
-| `autoresolve` | Manually run auto-settle on today's finished games | ~5s |
-| `autoresolve on` / `off` | Toggle automatic resolution during `live` tracking | instant |
+### Trading and Display
+| File | Purpose |
+|------|---------|
+| `predict_ledger.py` | Contract ledger (add, sell, resolve, mark, invert positions) |
+| `live_scores.py` | Live NFL scores via ESPN API (60s refresh loop) |
+| `auto_resolve.py` | Auto-settle finished trades against live final scores |
+| `html_generator.py` | Blogger-ready HTML prediction tables |
+| `help_system.py` | CLI help text for all commands |
+| `accuracy_test.py` | Standalone quick walk-forward accuracy test |
 
-### Settings
-
-| Command | Description | Time |
-|---------|-------------|------|
-| `settings` | Show all current Elo parameters + Platt scaler status | instant |
-| `set <param>=<value>` | Change any Elo parameter (see table below) | instant |
-| `set` (no args) | List all available parameters with current values | instant |
-
-### Utility
-
-| Command | Description | Time |
-|---------|-------------|------|
-| `help` | Show full command list | instant |
-| `help <command>` | Detailed help for a specific command | instant |
-| `quit` | Save state and exit | instant |
-
----
-
-## All Settable Parameters
-
-### Elo Parameters (20 tunable via optimizer)
-
-Type `set <param>=<value>` or `set <alias>=<value>`. Example: `set k=20`, `set home=48`, `set bye=1.05`.
-
-#### Core
-
-| Parameter | Aliases | Type | Default | Description |
-|-----------|---------|------|---------|-------------|
-| `k` | `k_factor` | float | 17.30 | Elo K-factor (learning rate per game). Optimized for the 17-game season. |
-| `base_rating` | `base`, `rating` | float | 1500.0 | Starting Elo rating for all 32 teams |
-| `home_adv` | `home`, `hca`, `home_advantage` | float | 18.12 | Home field advantage in Elo points (~52.6% implied) |
-| `use_mov` | `mov`, `margin` | bool | true | Use margin of victory adjustment: log(max(1, abs(margin)) + 1) |
-
-#### Player Strength
-
-| Parameter | Aliases | Type | Default | Description |
-|-----------|---------|------|---------|-------------|
-| `player_boost` | `boost`, `player` | float | 26.52 | Team-level player strength boost (passing-heavy composite) |
-
-#### Margin of Victory
-
-| Parameter | Aliases | Type | Default | Description |
-|-----------|---------|------|---------|-------------|
-| `mov_base` | `mov_mult`, `mov_constant` | float | 0.8 | MOV multiplier constant (log curve shift) |
-| `mov_cap` | `movcap`, `margin_cap` | float | 0.0 | Maximum MOV adjustment cap (0 = uncapped) |
-
-#### Rest / Schedule
-
-| Parameter | Aliases | Type | Default | Description |
-|-----------|---------|------|---------|-------------|
-| `rest_factor` | `rest` | float | 30.0 | Rest days advantage factor (centered at 7 days, not 1) |
-| `rest_advantage_cap` | `restcap`, `rest_cap` | float | 7.0 | Maximum rest advantage multiplier |
-| `bye_week_factor` | `bye`, `bye_week`, `bye_factor` | float | 0.0 | Bye week rest advantage bonus (currently disabled) |
-| `b2b_penalty` | `b2b`, `back_to_back` | float | 3.93 | Short-week game penalty (Thursday Night Football, etc.) |
-| `road_trip_factor` | `roadtrip`, `road_trip` | float | 0.0 | Extended road trip penalty |
-| `homestand_factor` | `homestand` | float | 32.0 | Extended homestand bonus (consecutive home games) |
-
-#### Travel / Venue
-
-| Parameter | Aliases | Type | Default | Description |
-|-----------|---------|------|---------|-------------|
-| `travel_factor` | `travel` | float | 25.0 | Elo penalty per timezone crossed (32 teams span 4 US timezones) |
-| `east_travel_penalty` | `east_travel`, `eastbound` | float | 0.0 | Extra penalty for eastbound travel (jet lag asymmetry) |
-| `altitude_factor` | `altitude`, `alt` | float | 0.67 | Altitude bonus multiplier (Denver Broncos at 5,280 ft only) |
-
-#### Form / Momentum
-
-| Parameter | Aliases | Type | Default | Description |
-|-----------|---------|------|---------|-------------|
-| `form_weight` | `form` | float | 16.38 | Recent form weight (last 5 games in a 17-game season) |
-| `win_streak_factor` | `streak`, `win_streak` | float | 32.0 | Win/loss streak momentum factor |
-| `mean_reversion` | `reversion`, `regress` | float | 17.21 | Mean reversion after extreme results |
-| `season_regress` | `season_regression`, `regress_pct` | float | 0.33 | Season boundary regression fraction toward 1500 |
-
-#### Matchup Adjustments
-
-| Parameter | Aliases | Type | Default | Description |
-|-----------|---------|------|---------|-------------|
-| `sos_factor` | `sos`, `strength_of_schedule` | float | 20.0 | Strength of schedule weight |
-| `division_factor` | `division`, `div` | float | 30.85 | Divisional game confidence reducer (AFC/NFC divisions) |
-| `conference_factor` | `conference`, `conf` | float | 0.0 | Conference (AFC vs NFC) game adjustment |
-| `series_adaptation` | `series`, `adaptation` | float | 0.0 | Series adaptation factor (rematches within the season) |
-
-#### Scoring Model
-
-| Parameter | Aliases | Type | Default | Description |
-|-----------|---------|------|---------|-------------|
-| `pace_factor` | `pace`, `tempo` | float | 4.0 | Scoring environment mismatch adjustment |
-| `pyth_factor` | `pyth`, `pythagorean` | float | 0.0 | Pythagorean expected W% adjustment (exponent ~2.37) |
-| `scoring_consistency_factor` | `consistency`, `scoring_consistency` | float | 5.0 | Penalty for volatile scoring patterns |
-| `home_road_factor` | `home_road`, `split` | float | 0.0 | Team-specific home/road split bonus |
-
-#### Season / Phase
-
-| Parameter | Aliases | Type | Default | Description |
-|-----------|---------|------|---------|-------------|
-| `playoff_hca_factor` | `playoff`, `playoff_hca`, `postseason` | float | 2.0 | Playoff home advantage multiplier (Jan-Feb games auto-detected) |
-| `season_phase_factor` | `phase`, `season_phase` | float | 32.0 | Early-season dampener (Weeks 1-4 less predictable) |
-
-#### K-Factor Variants
-
-| Parameter | Aliases | Type | Default | Description |
-|-----------|---------|------|---------|-------------|
-| `k_decay` | `kdecay`, `k_reduction` | float | 0.0 | K-factor decay over the season (reduces reactivity late) |
-| `surprise_k` | `surprise`, `upset_k` | float | 0.0 | Extra K for surprise/upset results |
-
-#### Account / Trading
-
-| Parameter | Aliases | Type | Default | Description |
-|-----------|---------|------|---------|-------------|
-| `kelly_fraction` | `kelly` | special | 0.50 | Kelly criterion fraction (`quarter`/`half`/`full` or 0.25/0.50/1.0) |
-| `starting_balance` | `balance`, `bankroll` | float | 0.0 | Starting account balance |
-| `autoresolve_enabled` | `autoresolve`, `auto_resolve` | bool | false | Auto-resolve finished trades |
-
-### Mega-Ensemble Parameters (14 total)
-
-Type `mega set <param>=<value>` or `mega set <alias>=<value>`. Example: `mega set adj=0.10`, `mega set meta=ridge`.
-
-| Parameter | Aliases | Type | Description |
-|-----------|---------|------|-------------|
-| `max_adj` | `maxadj`, `adj`, `adjustment` | float | Max meta-learner adjustment (+/- probability, default ~0.10) |
-| `meta_model` | `meta`, `metalearner`, `stacker` | str | Meta-learner type: `ridge`, `logistic`, or `xgboost` |
-| `retrain_every` | `retrain`, `retrain_interval` | int | Retrain meta-learner every N games |
-| `min_train` | `mintrain`, `min_games`, `warmup` | int | Games before meta-learner starts predicting |
-| `kalman_process_noise` | `kalman_pn`, `process_noise`, `pn` | float | Kalman filter process noise |
-| `kalman_measurement_noise` | `kalman_mn`, `measurement_noise`, `mn` | float | Kalman filter measurement noise |
-| `hmm_states` | `hmm_n`, `n_states`, `states` | int | Number of HMM hidden states |
-| `network_decay` | `net_decay`, `pagerank_decay`, `decay` | float | PageRank temporal decay (0-1) |
-| `momentum_friction` | `friction`, `mom_friction` | float | Momentum friction coefficient |
-| `n_clusters` | `clusters`, `k_clusters`, `nclusters` | int | Number of team archetype clusters |
-| `glicko_initial_rd` | `glicko_rd`, `initial_rd`, `rd` | float | Glicko-2 initial rating deviation |
-| `bt_decay` | `bt_recency`, `bradley_decay` | float | Bradley-Terry recency decay (0-1) |
-| `mc_simulations` | `mc_sims`, `simulations`, `n_sims`, `sims` | int | Monte Carlo simulations per game |
-| `window` | `rolling_window`, `feat_window` | int | Rolling feature window size (games) |
+### Utility Scripts
+| File | Purpose |
+|------|---------|
+| `run_optimize.py` | Standalone optimization runner |
+| `accuracy_optimize.py` | Accuracy-focused optimization |
+| `run_enhanced_all.py` | Run enhanced backtest standalone |
+| `quick_optimizer.py` | Quick parameter sweep |
+| `sweep_enhanced.py` | Enhanced parameter sweep |
+| `master_optimize.py` | Cross-sport master optimization runner |
+| `run_sport_workflow.py` | Automated sport workflow runner |
 
 ---
 
-## Optimization System
+## Optimization
 
-### Elo Optimization (6 methods)
+### Objective Function
 
-| Phase | Command | Method | Params | Time |
-|-------|---------|--------|--------|------|
-| 1 | `grid` | Exhaustive grid search | K, HomeAdv, PlayerBoost (768+ combos) | ~5-10m |
-| 2 | `genetic` | Differential evolution (scipy) | 7 params, 50 gen x 25 pop | ~10-20m |
-| 3 | `bayesian` | Gaussian Process + Expected Improvement | 7 params, 15 initial + 40 iter | ~10-15m |
-| 4 | `autoopt` | Automatic pipeline (grid -> genetic -> bayesian) | 7 params, best of all three | ~30-45m |
-| 5 | `superopt` | Exhaustive 7-phase multi-round optimization | 9 params, hours of search | ~2-4h |
-| 6 | `singleopt` | Coordinate descent (one param at a time) | All params, accuracy-focused | ~15-30m |
-
-**Objective function**: `-(LogLoss * 8 + Brier * 40)`. This weighting is intentional -- the Brier component penalizes miscalibration more heavily than raw discrimination, producing probabilities that are well-calibrated rather than just accurate.
-
-**`superopt` 7-phase detail:**
-
-1. **Phase 1 -- Broad Grid Search**: 9 params, ~6,000+ combinations. Establishes the promising region of parameter space.
-2. **Phase 2 -- Genetic Round 1**: Wide bounds, 100 generations x 50 population. Differential evolution explores the full space.
-3. **Phase 3 -- Bayesian Round 1**: Wide bounds, 30 initial points + 80 iterations. GP surrogate models the objective surface.
-4. **Phase 4 -- Genetic Round 2**: Tightened bounds around best-so-far, 80 generations x 40 population. Intensifies search in the best region.
-5. **Phase 5 -- Bayesian Round 2**: Tightened bounds, 20 initial + 60 iterations. Fine-grained exploitation of the GP model.
-6. **Phase 6 -- Fine Grid**: Tiny step sizes around the absolute best parameters found. Ensures no nearby optimum was missed.
-7. **Phase 7 -- Validation**: Runs purgedcv + PBO + Monte Carlo on the winning parameters to confirm they are not overfit.
-
-### Mega-Ensemble Optimization (7 phases, 54 per-model hyperparameters)
-
-| Phase | Method | Description |
-|-------|--------|-------------|
-| 1 | Solo test | Test each model individually to find per-model optimal settings. |
-| 2 | Tournament | Top configs compete head-to-head on held-out data. |
-| 3 | Meta-learner tuning | Optimize `max_adj`, `meta_model`, `retrain_every`, `min_train`. |
-| 4 | Differential Evolution (DE) | Fine-tune all continuous params with genetic optimization. |
-| 5 | Ablation | Prune models that hurt ensemble accuracy. |
-| 6 | Validation | Purged CV + stability test with multiple random seeds. |
-| 7 | Apply best | Save winning parameters. |
-
-Use `mega tune` for per-model solo optimization (Phase 1 only) and `mega tournament` for head-to-head model comparison (Phase 2 only).
-
-**Mega ablation** (`mega ablation`): Disables each model one at a time and measures the accuracy change. Models that hurt overall accuracy are automatically flagged for pruning. This identifies which of the 35 models are contributing positive signal and which are adding noise.
-
-### Recommended Optimization Workflow
+All optimizers use the same scoring objective:
 
 ```
-Step 1:  python main.py                     # Baseline backtest runs automatically (20 Elo params)
-Step 2:  grid                               # Find promising region (~5-10m)
-Step 3:  genetic                            # Refine with evolution (~10-20m)
-Step 4:  bayesian                           # Fine-tune with GP (~10-15m)
-Step 5:  results                            # Compare all optimizer outputs
-Step 6:  backtest                           # Refit Platt with best params
-Step 7:  mega                               # Run mega-ensemble with Elo base
-Step 8:  mega tune                          # Per-model solo optimization
-Step 9:  mega tournament                    # Head-to-head model comparison
-Step 10: mega optimize                      # Full 7-phase optimization (54 per-model hyperparams, ~1-3h)
-Step 11: mega ablation                      # Prune bad models (~30-60m)
-Step 12: purgedcv -> pbo -> montecarlo      # Validate (not overfit)
-Step 13: kelly                              # Size positions optimally
+score = -(LogLoss * 8 + Brier * 40)
 ```
 
-Or use the fully automated shortcut:
-```
-autoopt                                     # Steps 2-4 automated (~30-45m)
-superopt                                    # Steps 2-6 + validation (~2-4h)
-```
+This weighting is intentional. It penalizes overconfident wrong predictions (log loss) while also rewarding calibration (Brier). Higher is better (scores are negative; closest to zero wins).
+
+### master_optimize.py
+
+The `master_optimize.py` script runs the full optimization pipeline for the NFL system. It is also invoked by the cross-sport master optimizer that coordinates optimization across NBA, NFL, NHL, and MLB simultaneously.
+
+The optimization is accuracy-first: the pipeline targets improvements in raw predictive accuracy while maintaining calibration quality.
+
+### Optimization Pipeline
+
+1. **Grid search** (`grid`) -- Coarse sweep over 7 Elo parameters with configurable ranges
+2. **Genetic optimizer** (`genetic`) -- `scipy.optimize.differential_evolution` for fine-tuning
+3. **Bayesian optimizer** (`bayesian`) -- GP surrogate + Expected Improvement, ~50-100 evaluations
+4. **Auto-optimize** (`autoopt`) -- Automated grid-to-genetic-to-bayesian pipeline
+5. **Super-optimize** (`superopt`) -- Exhaustive 7-phase optimization (9 parameters, takes hours)
+6. **Coordinate descent** (`singleopt`) -- One-param-at-a-time sweep with fine refinement
+7. **Mega optimizer** (`mega optimize`) -- 7-phase per-model optimization for the 36-model ensemble
+
+### Mega-Ensemble Optimizer Phases
+
+The `mega_optimizer.py` runs 7 phases for per-model exhaustive tuning:
+
+- **Phase 0**: Elo-only baseline -- establish the floor
+- **Phase 1**: Per-model solo optimization -- Elo + one model at a time
+- **Phase 2**: Head-to-head tournament -- pairs, triples, top-N combos
+- **Phase 3**: Meta-learner + global tuning -- max_adj, meta_model, retrain_every
+- **Phase 4**: Combined DE fine-tuning -- differential evolution over top numeric params
+- **Phase 5**: Final ablation -- test each model's contribution, prune weak ones
+- **Phase 6**: Validation -- run best config 5 times, report stability
+
+### Validation After Optimization
+
+After optimizing, validate with this sequence:
+1. `pbo` -- Probability of backtest overfitting (PBO < 0.3 is good)
+2. `results` -- Check Deflated Sharpe Ratio (DSR > 1.96 means significant)
+3. `purgedcv` -- Fold stability (accuracy std < 2% is good)
+4. `cpcv` -- Combinatorial robustness (>90% paths above 65% accuracy)
+5. `montecarlo` -- Statistical significance (p < 0.05)
+
+---
+
+## Kalshi Integration
+
+The `kalshi.py` module connects to the Kalshi public API to fetch live prediction market contract prices for NFL games. Features:
+
+- Show current contract prices for this week's games (`kalshi` command)
+- Compare model probability against market price to find edges
+- Auto-Kelly position sizing recommendation based on edge size
+- Track closing line value (CLV) -- whether the line moved toward or away from your position
+
+Kalshi contracts are $1 binary options. The system's trading ledger tracks entry, mark-to-market, and settlement of these contracts with 2% fees on entry and exit.
 
 ---
 
 ## Data Sources
 
-| Source | Data | Cost | Cache |
-|--------|------|------|-------|
-| ESPN API | Game scores, schedules | Free | 6 hours |
-| ESPN API | Player stats (passing, rushing, receiving) | Free | 6 hours |
-| nfl_data_py | EPA, CPOE, success rate (nflverse play-by-play) | Free | 6 hours |
-| ESPN API | Injury reports | Free | 4 hours |
-| Open-Meteo | Weather (outdoor stadiums) | Free, no key | 2 hours |
-| The Odds API | Moneyline odds, CLV | Free tier (500 req/mo) | 1 hour |
-| Kalshi | Prediction market prices | Free public API | Real-time |
+All data sources are free. No paid API keys are required.
 
-### Smart Caching
+| Source | Data | Cache TTL |
+|--------|------|-----------|
+| ESPN public API | Game scores and schedules (2 years) | 6 hours |
+| ESPN public API | Player stats (passing, rushing, receiving) | 6 hours |
+| ESPN JSON API | Injury reports (status, position, impact) | 4 hours |
+| nfl_data_py / nflverse | EPA, CPOE, success rate play-by-play data | Cached to CSV |
+| Open-Meteo API | Weather for outdoor stadiums (wind, temp, precip) | 2 hours |
+| The Odds API (free tier) | Moneyline odds, 500 requests/month | Per-request |
+| Kalshi public API | Prediction market contract prices | Live |
+| ESPN live scoreboard | Live scores for auto-resolve | 60 seconds |
 
-Cache staleness is season-aware via `cache_utils.py`:
-- **In-season** (September-February): Games/players refresh every 6 hours, injuries every 4 hours, weather every 2 hours
-- **Off-season**: All caches extend to 24+ hours
-- **Stale detection**: Files under 500 bytes treated as corrupt stubs
-- **Manual refresh**: `refresh` command deletes all caches and re-downloads
-
-## API Setup
-
-### The Odds API Setup (Optional)
-
-The Odds API provides real-time moneyline odds. It is free for up to 500 requests per month.
-
-1. Go to [https://the-odds-api.com](https://the-odds-api.com)
-2. Sign up for a free account
-3. Copy your API key from the dashboard
-4. Set environment variable: `set ODDS_API_KEY=your_key_here` (Windows) or `export ODDS_API_KEY=your_key_here` (Linux/Mac)
-5. Run `odds` in the CLI to see today's lines
-
-500 requests per month is plenty for daily use -- each `odds` call uses 1 request. During the NFL season (September-February), one call per game day uses roughly 20-25/month (5% of your quota).
-
-### Weather (No Setup Required)
-
-Open-Meteo provides free weather forecasts with no API key. The `weather` command automatically geolocates NFL stadiums and pulls temperature, wind speed, wind direction, humidity, and precipitation probability. Weather is especially important for NFL -- outdoor stadiums in cold-weather cities (Green Bay, Buffalo, Chicago, Denver) can see snow, sub-zero temperatures, and heavy winds that dramatically affect game outcomes.
-
-### Advanced Stats via nfl_data_py (No Setup Required)
-
-The nfl_data_py package provides access to the entire nflverse data ecosystem -- pre-compiled CSVs with play-by-play data, EPA (Expected Points Added), CPOE (Completion Percentage Over Expected), success rates, and officials assignments. No API key, no rate limits, completely free. Install with `pip install nfl_data_py`.
+Smart caching via `cache_utils.py` provides season-aware staleness checks. Different data types refresh at different rates. Files under 500 bytes are always treated as stale.
 
 ---
 
-## Smart Caching
+## Configuration
 
-The caching system adapts to the NFL season calendar (September-February) and whether today is a game day. This minimizes unnecessary API calls while keeping data fresh when it matters.
+### Settings File: `nfl_elo_settings.json`
 
-### Cache Duration Table
+Contains all tunable Elo parameters (24 total). Key NFL-specific defaults:
 
-| Data Type | Offseason | Game Day (In-Season) | Non-Game Day (In-Season) |
-|-----------|-----------|---------------------|--------------------------|
-| **Games** (scores, results) | 7 days (168h) | 4 hours | 12 hours |
-| **Players** (passing/rushing/receiving leaders) | 30 days (720h) | 48 hours | 48 hours |
-| **Injuries** (ESPN IR/Doubtful/Out) | 30 days (720h) | 2 hours | 6 hours |
-| **Odds** (moneyline from The Odds API) | Never fetched | 15 minutes | 4 hours |
-| **Weather** (Open-Meteo forecast) | Never fetched | 2 hours | 12 hours |
-| **Advanced Stats** (nfl_data_py EPA/CPOE) | 30 days (720h) | 24 hours | 24 hours |
+| Parameter | Default | NFL Significance |
+|-----------|---------|------------------|
+| `k` | 17.30 | Higher K than NBA (8.53) -- 17-game season demands faster adaptation |
+| `home_advantage` | 18.12 | ~52.6% implied home win rate (lower than NBA) |
+| `player_boost` | 26.52 | Lower than NBA -- football is more team-dependent |
+| `rest_factor` | 30.0 | Centered at 7-day weekly schedule; deviations are major |
+| `b2b_penalty` | 3.93 | Thursday Night Football short turnaround penalty |
+| `bye_week_factor` | 0.0 | Bye week boost (currently disabled, tunable) |
+| `division_factor` | 30.85 | Very high -- NFL division games are grinder matchups |
+| `win_streak_factor` | 32.0 | Momentum matters more with few games per season |
+| `season_phase_factor` | 32.0 | Early/mid/late season adjustment |
+| `altitude_factor` | 0.67 | Denver Broncos Mile High (5,280 ft) |
+| `travel_factor` | 25.0 | Cross-country travel fatigue |
+| `sos_factor` | 20.0 | Strength of schedule (much higher than NBA) |
+| `mean_reversion` | 17.21 | Regression after extreme results |
+| `playoff_hca_factor` | 2.0 | Amplified home advantage in playoffs |
+| `season_regress` | 0.33 | 33% regression toward mean at season boundaries |
 
-### NFL Season Calendar
+### Mega-Ensemble Settings: `nfl_mega_settings.json`
 
-```
-Jan  Feb  Mar  Apr  May  Jun  Jul  Aug  Sep  Oct  Nov  Dec
-[PLAYOFFS][------OFF------][--PRESEASON--][--REGULAR SEASON--]
-     ^                                    ^                  ^
-     Super Bowl                    Season starts     Regular season
-     (early Feb)                   (Week 1, Sep)     ends (early Jan)
-```
+| Parameter | Default | Notes |
+|-----------|---------|-------|
+| `window` | 5 | Rolling feature window (narrow for 17-game season) |
+| `min_train` | 200 | Games before meta-learner starts predicting |
+| `retrain_every` | 50 | Retrain ML models every 50 games |
+| `max_adj` | 0.10 | Maximum mega-ensemble adjustment (+/- from Elo anchor) |
+| `meta_model` | xgboost | Meta-learner type (xgboost, ridge, or logistic) |
+| `pyth_exp` | 2.37 | Pythagorean exponent (low due to lower-scoring NFL games) |
 
-NFL plays games primarily on Sundays, with Monday Night Football and Thursday Night Football adding additional game days. The regular season runs from early September through early January (18 weeks for 17 games plus a bye), followed by playoffs through the Super Bowl in early February. The caching system treats Sunday/Monday/Thursday as potential game days during the active season.
+### Other Generated Files
 
-### 32 NFL Teams (8 Divisions)
+| File | Purpose |
+|------|---------|
+| `nfl_elo_ratings.json` | Current Elo ratings for all 32 teams |
+| `nfl_platt_scaler.json` | Platt calibration coefficients |
+| `nfl_enhanced_model.json` | XGBoost ensemble metadata |
+| `nfl_xgb_model.json` | Saved XGBoost model weights |
+| `nfl_meta_xgb.json` | Trained meta-learner weights |
+| `nfl_backtest_predictions.csv` | Per-game backtest predictions |
+| `nfl_calibration.csv` | 10-bin calibration table |
+| `nfl_epa_stats.csv` | Cached EPA/CPOE per-team stats |
+| `predicts_lots.csv` | Trading ledger (positions, P&L) |
+| `weather_cache.json` | Cached weather API responses |
 
-```
-AFC East:  Buffalo Bills, Miami Dolphins, New England Patriots, New York Jets
-AFC North: Baltimore Ravens, Cincinnati Bengals, Cleveland Browns, Pittsburgh Steelers
-AFC South: Houston Texans, Indianapolis Colts, Jacksonville Jaguars, Tennessee Titans
-AFC West:  Denver Broncos, Kansas City Chiefs, Las Vegas Raiders, Los Angeles Chargers
+### Cross-Sport Shared Files
 
-NFC East:  Dallas Cowboys, New York Giants, Philadelphia Eagles, Washington Commanders
-NFC North: Chicago Bears, Detroit Lions, Green Bay Packers, Minnesota Vikings
-NFC South: Atlanta Falcons, Carolina Panthers, New Orleans Saints, Tampa Bay Buccaneers
-NFC West:  Arizona Cardinals, Los Angeles Rams, San Francisco 49ers, Seattle Seahawks
-```
+The wallet and portfolio are shared across all sport systems (NBA, NFL, NHL, MLB):
 
----
-
-## Performance
-
-### Multithreading
-
-The mega-ensemble uses `concurrent.futures.ThreadPoolExecutor` to run all 35 base models in parallel. On typical hardware:
-
-- **4-core machine**: ~2-3x speedup over sequential
-- **8-core machine**: ~3-5x speedup over sequential
-- **16-core machine**: ~5-8x speedup over sequential
-
-The GIL is not a bottleneck because most models spend time in C extensions (numpy, scipy, xgboost, lightgbm, catboost) which release the GIL.
-
-### GPU Acceleration
-
-| Library | GPU Backend | Speedup | Detection |
-|---------|------------|---------|-----------|
-| XGBoost | CUDA (`gpu_hist`) | 3-10x on tree construction | Automatic if CUDA available |
-| LightGBM | CUDA (`device='gpu'`) | 2-5x on tree construction | Automatic if CUDA available |
-| CatBoost | CUDA (`task_type='GPU'`) | 3-8x on tree construction | Automatic if CUDA available |
-| PyTorch (MLP/LSTM) | CUDA | 5-20x on neural network training | `torch.cuda.is_available()` |
-
-GPU is entirely optional. All models fall back to CPU silently. No configuration needed.
-
-### Typical Backtest Results
-
-Results from smoke testing on ~570 games (approximately 2 NFL seasons):
-
-| Metric | Value |
-|--------|-------|
-| **Games tested** | 570 |
-| **Accuracy** | 69.12% |
-| **Log Loss** | 0.6181 |
-| **Brier Score** | 0.2138 |
-| **ECE** (calibration error) | ~0.039 |
-| **BSS vs 50%** | ~0.145 |
-
-Football is more predictable than baseball (best NFL teams win ~75-80% of games, worst teams win ~20-25%), so accuracy in the 65-70% range on moneyline picks represents solid performance. The NFL's smaller sample size (272 regular season games per year vs 2,430 in MLB) means confidence intervals are wider. A model consistently above 60% accuracy across multiple seasons demonstrates genuine predictive signal.
+| File | Location | Purpose |
+|------|----------|---------|
+| `portfolio_settings.json` | Parent directory | Shared portfolio configuration |
+| `cash_transactions.csv` | Parent directory | Shared cash deposit/withdrawal log |
 
 ---
 
-## Complete Model Validation Workflow
+## Dependencies
 
-A rigorous 6-phase workflow ensures your model is genuinely predictive and not overfit to historical data.
+**Required:**
+- pandas, numpy, scipy, colorama, tqdm, xgboost, requests, matplotlib
+- nfl_data_py (for EPA/CPOE advanced stats from nflverse play-by-play)
 
-### Phase 1: Baseline & Diagnostics
-
-```
-backtest          # Walk-forward accuracy, LogLoss, Brier, ECE
-convergence       # How many games before Elo ratings stabilize?
-sliding           # Does old data help or hurt? (sliding vs expanding window)
-```
-
-Establishes baseline metrics. The `convergence` command identifies the burn-in period (typically 100-200 games for NFL -- about 1 full season). `sliding` determines whether the model benefits from full history or performs better with a shorter memory.
-
-### Phase 2: Parameter Optimization
-
-```
-grid              # Broad search over K, HomeAdv, PlayerBoost
-pbo               # Is the grid search overfit? (PBO > 0.5 = overfit)
-results           # Compare all optimizer outputs + Deflated Sharpe Ratio
-genetic           # Refine with differential evolution
-```
-
-The Probability of Backtest Overfitting (PBO) test is critical here. If PBO > 0.5, your grid search likely found parameters that are overfit to this specific data window. The Deflated Sharpe Ratio (DSR) adjusts for multiple comparisons.
-
-### Phase 3: Cross-Validation
-
-```
-purgedcv          # k-fold with embargo gap (prevents Elo momentum leakage)
-cpcv              # All C(k, k_test) paths for tighter confidence intervals
-montecarlo        # 500 permutation shuffles -> p-value for significance
-```
-
-Purged CV adds an embargo gap between train and test folds to prevent Elo momentum from leaking across boundaries. CPCV produces many more backtest paths for tighter confidence. Monte Carlo gives a p-value: if < 0.05, the model's edge is statistically significant.
-
-### Phase 4: Ensemble & Features
-
-```
-enhanced          # XGBoost ensemble (93 features, 80/20 blend)
-shap              # Which features are driving XGBoost predictions?
-enhanced decay    # Time-decayed weighting (XGB gets more weight over season)
-```
-
-SHAP analysis reveals whether XGBoost is adding genuine signal beyond Elo or just echoing it. If the top SHAP features are all Elo-derived, the ensemble may not be adding value.
-
-### Phase 5: Calibration
-
-```
-rollingcal        # Expanding-window Platt recalibration (truly OOS)
-betacal           # 3-parameter beta calibration (handles asymmetry)
-conformal         # Distribution-free prediction intervals with coverage
-```
-
-Rolling calibration gives truly out-of-sample calibrated metrics. Beta calibration fixes asymmetric miscalibration (e.g., overconfident on favorites but well-calibrated on underdogs). Conformal prediction provides coverage guarantees without distributional assumptions.
-
-### Phase 6: P&L Simulation
-
-```
-kelly             # Kelly criterion bankroll simulation on backtest
-```
-
-Simulates optimal position sizing over the backtest period. Reports final bankroll, maximum drawdown, Sharpe ratio, and win rate. Uses fractional Kelly (default 50%) for practical sizing.
-
-### Decision Framework After Validation
-
-| Metric | Good | Marginal | Bad | Action if bad |
-|--------|------|----------|-----|---------------|
-| Accuracy | >66% | 63-66% | <63% | Revisit Elo adjusters, check data quality |
-| ECE | <0.03 | 0.03-0.08 | >0.08 | Refit Platt, try beta calibration |
-| BSS vs 50% | >0.08 | 0.04-0.08 | <0.04 | Model has weak discriminative power |
-| PBO | <0.3 | 0.3-0.5 | >0.5 | Grid search overfit -- use wider ranges |
-| DSR | >1.96 | 1.0-1.96 | <1.0 | Best params are noise -- simplify model |
-| Monte Carlo p | <0.01 | 0.01-0.05 | >0.05 | No statistically significant skill |
-| Purged CV std | <2% | 2-3% | >3% | Model is fragile to training data selection |
-| Kelly Sharpe | >1.0 | 0.5-1.0 | <0.5 | Edge too thin for real trading |
-| Kelly max DD | <30% | 30-50% | >50% | Size down (use 10%-Kelly instead of 25%) |
+**Optional (for advanced models):**
+- torch (MLP, LSTM neural networks)
+- hmmlearn (Hidden Markov Model)
+- filterpy (Kalman Filter)
+- lightgbm (LightGBM gradient boosting)
+- catboost (CatBoost gradient boosting)
+- networkx (PageRank network model)
 
 ---
 
-## Daily Prediction Workflow
+## NFL-Specific Design Notes
 
-Step-by-step workflow for making daily predictions during the NFL season:
-
-```
-1. LAUNCH
-   python main.py
-   -> Auto-downloads latest games, players, injuries
-   -> Runs baseline backtest (fits Platt scaler)
-   -> Shows baseline accuracy
-
-2. CHECK MODEL STATUS
-   settings            # Verify parameters are tuned
-   platt               # Confirm calibration scaler is fitted
-   mega models         # Check which models are enabled
-
-3. MAKE PREDICTIONS
-   today               # Generate HTML table for all today's games
-   chiefs              # Individual matchup prediction (fuzzy search)
-   -> Enter opponent, home team, see calibrated probability
-   -> 'y' to log as Predicts contract
-
-4. LOG POSITIONS
-   balance             # Check account balance
-   -> Enter contracts through prediction flow
-   predicts            # Review all open positions
-
-5. PUBLISH (optional)
-   today               # Generates today_nfl_predictions.html
-   blogger             # Same as today -- copy HTML to Blogger
-
-6. MONITOR
-   live                # Live score tracker with open trade status
-                       # Auto-refreshes every 60 seconds
-   odds                # Check latest odds for CLV comparison
-
-7. SETTLE
-   autoresolve         # Auto-settle finished games
-   resolve             # Manually settle a specific contract
-   sell                # Exit early at market price
-
-8. REVIEW
-   predicts            # Full P&L summary
-   chart               # Monthly P&L bar chart
-   kelly               # Was sizing optimal?
-```
-
----
-
-## Trading Ledger
-
-The Predicts $1 contract tracking system models binary outcome contracts (similar to prediction market contracts) where each contract settles at $1.00 (win) or $0.00 (loss).
-
-### How It Works
-
-1. **Entry**: Buy a contract at the model's implied probability (e.g., buy KC at $0.68)
-2. **Entry fee**: 2% of entry price deducted at purchase
-3. **Settlement**: Contract resolves to $1.00 (team wins) or $0.00 (team loses)
-4. **Profit/Loss**: Settlement value minus entry price minus fees
-5. **Exit fee**: 2% deducted if you sell before settlement
-
-### Commands
-
-- `predicts` / `summary` -- Show all lots with entry price, current mark, P&L
-- `balance` -- Current account balance
-- `resolve` -- Settle a contract (enter W or L outcome)
-- `sell` -- Exit a position early at current market price
-- `mark` -- Update the current market price of open positions
-- `invert` -- Flip the side of a position (e.g., bought YES -> now SHORT NO)
-- `chart` -- Monthly realized P&L bar chart
-- `autoresolve` -- Auto-settle using today's game results from the ESPN API
-- `live` -- Watch live scores with real-time P&L on open trades
-
-### Mark-to-Market
-
-Open positions can be marked to current market prices at any time using `mark`. This updates the unrealized P&L without closing the position. The `predicts` summary shows both unrealized (mark-to-market) and realized (settled) P&L.
-
-### Auto-Resolve
-
-When `autoresolve on` is active, the system automatically settles contracts when final game scores are detected during `live` tracking. You can also manually trigger `autoresolve` to batch-settle all finished games.
-
-### Kelly Criterion Position Sizing
-
-The `kelly` command simulates optimal position sizing over the backtest period. Fractional Kelly (default 50%) is used for practical sizing -- full Kelly is mathematically optimal but produces uncomfortable drawdowns. The Kelly recommendation shown during prediction flow tells you the optimal bet size based on edge and implied probability.
-
----
-
-## File Structure
-
-```
-NFL/
-|
-|-- main.py                     # CLI entry point, command dispatch loop
-|-- config.py                   # Constants, 32 NFL teams, 8 divisions, settings I/O
-|-- elo_model.py                # NFLElo class (ratings, predictions, 24 adjusters)
-|-- build_model.py              # Model training pipeline with season regression
-|
-|-- data_games.py               # Game data download via ESPN public API
-|-- data_players.py             # Passing + rushing + receiving leaders via ESPN API
-|-- advanced_stats.py           # nfl_data_py: EPA, CPOE, success rate, referees
-|
-|-- backtest.py                 # All backtesting & optimization (~2100 lines)
-|-- enhanced_model.py           # XGBoost ensemble (93 features, 5-game window) + SHAP
-|-- single_param_opt.py         # Coordinate descent optimizer
-|
-|-- platt.py                    # Calibration (Platt, isotonic, beta, regression)
-|-- metrics.py                  # LogLoss, Brier, ECE, MCE, BSS, conformal
-|
-|-- predict_ledger.py           # Predicts $1 contract ledger management
-|-- live_scores.py              # Live NFL scores + open trade display
-|-- auto_resolve.py             # Auto-settle finished trades from live scores
-|
-|-- injuries.py                 # ESPN injury report + Elo impact (QB out = -50 Elo)
-|-- html_generator.py           # Blogger HTML prediction table generation
-|-- help_system.py              # Help text for all commands
-|-- color_helpers.py            # Colorama terminal formatting utilities
-|-- cache_utils.py              # Smart season-aware API caching
-|-- elo_set_handler.py          # 'set param=value' command handler (39 params)
-|
-|-- hmm_model.py                # Hidden Markov Model (hot/cold states)
-|-- kalman_model.py             # Kalman Filter (strength estimation)
-|-- network_model.py            # PageRank + HITS (network analysis)
-|-- gbm_models.py               # LightGBM + CatBoost gradient boosting
-|-- nn_models.py                # MLP + LSTM neural networks (PyTorch)
-|-- volatility_model.py         # GARCH volatility + Lyapunov/Hurst
-|-- signal_model.py             # Fourier + wavelet (cycle detection)
-|-- survival_model.py           # Survival analysis (streak hazards)
-|-- copula_model.py             # Copula (offense/defense dependency)
-|-- information_theory_model.py # Shannon entropy + KL divergence
-|-- momentum_model.py           # Newtonian momentum / inertia
-|-- markov_chain_model.py       # Markov chain transition matrices
-|-- clustering_model.py         # k-Means team archetypes
-|-- game_theory_model.py        # Nash equilibrium + style matchups
-|-- poisson_model.py            # Poisson / Dixon-Coles score distribution
-|-- glicko_model.py             # Glicko-2 uncertainty-aware ratings
-|-- bradley_terry_model.py      # Bradley-Terry MLE paired comparison
-|-- monte_carlo_model.py        # Monte Carlo simulation (3000 sims)
-|-- random_forest_model.py      # Random Forest (bagging diversity)
-|-- classic_models.py           # SRS, Colley, Log5, Pythagorean, ExpSmooth, MeanReversion
-|-- svm_model.py                # SVM classifier (RBF kernel + Platt scaling)
-|-- fibonacci_model.py          # Fibonacci retracement analysis
-|-- evt_model.py                # Extreme Value Theory tail risk
-|-- benford_model.py            # Benford's Law anomaly detection
-|
-|-- odds_tracker.py             # The Odds API integration + CLV tracking
-|-- weather.py                  # Open-Meteo weather impact calculation
-|-- kalshi.py                   # Kalshi prediction market integration
-|
-|-- meta_learner.py             # Ridge/Logistic/XGBoost meta-learner stacker
-|-- mega_backtest.py            # Mega-ensemble walk-forward backtest engine
-|-- mega_predictor.py           # MegaPredictor class (35-model runtime)
-|-- mega_optimizer.py           # 7-phase mega-ensemble optimization
-|-- mega_config.py              # Per-model on/off switches + mega params (54 hyperparams)
-|
-|-- run_optimize.py             # Batch optimization runner
-|-- quick_optimizer.py          # Quick optimization utilities
-|-- sweep_enhanced.py           # Enhanced model sweep runner
-|-- run_enhanced_all.py         # Batch enhanced model runner
-|-- accuracy_optimize.py        # Accuracy-focused optimization utilities
-|-- accuracy_test.py            # Quick walk-forward accuracy test
-|
-|-- requirements.txt            # Python dependencies
-|-- CLAUDE.md                   # Claude Code agent instructions
-|-- README.md                   # This file
-|
-|-- nfl_elo_settings.json       # [generated] Tuned Elo parameters
-|-- nfl_mega_settings.json      # [generated] Mega-ensemble settings (model switches + hyperparams)
-|-- nfl_recent_games.csv        # [generated] 2 years of game history from ESPN
-|-- nfl_player_stats.csv        # [generated] Passing/rushing/receiving leaders
-|-- nfl_advanced_stats.csv      # [generated] EPA, CPOE, success rate from nflverse
-|-- nfl_elo_ratings.json        # [generated] Saved Elo ratings for all 32 teams
-|-- nfl_platt_scaler.json       # [generated] Platt calibration coefficients
-|-- nfl_enhanced_model.json     # [generated] XGBoost metadata
-|-- nfl_xgb_model.json          # [generated] XGBoost model weights
-|-- nfl_injuries.json           # [generated] Cached injury report (4-hour TTL)
-|-- predicts_lots.csv           # [generated] Trading ledger (positions, P&L)
-```
-
-55 Python files total. All generated data files use the `nfl_` prefix and are gitignored.
-
----
-
-## Requirements
-
-### System Requirements
-
-- **Python**: 3.9 or higher
-- **OS**: Windows, macOS, or Linux
-- **RAM**: 4 GB minimum, 8 GB recommended (mega-ensemble holds all 35 models in memory)
-- **Disk**: ~500 MB for cached data + model files
-- **Internet**: Required for API data downloads (can run offline with cached data)
-- **GPU**: Optional (CUDA-capable NVIDIA GPU for XGBoost/LightGBM/CatBoost/PyTorch acceleration)
-
-### Python Dependencies
-
-#### Core (Required)
-
-```
-pandas>=1.5
-numpy>=1.24
-scipy>=1.10
-colorama>=0.4
-tqdm>=4.60
-xgboost>=2.0
-requests>=2.28
-matplotlib>=3.7
-```
-
-#### NFL Data APIs
-
-```
-nfl_data_py>=0.3              # nflverse play-by-play data (EPA, CPOE, officials, rosters)
-```
-
-#### Prediction Models
-
-```
-hmmlearn>=0.3             # Hidden Markov Models
-filterpy>=1.4             # Kalman filters
-lightgbm>=4.0             # LightGBM gradient boosting
-catboost>=1.2             # CatBoost gradient boosting
-networkx>=3.0             # PageRank / HITS graph analysis
-```
-
-#### Neural Networks (CPU or GPU)
-
-```
-torch>=2.0                # MLP + LSTM (PyTorch)
-```
-
-CPU-only install (smaller download):
-```bash
-pip install torch --index-url https://download.pytorch.org/whl/cpu
-```
-
-GPU install (requires CUDA):
-```bash
-pip install torch --index-url https://download.pytorch.org/whl/cu121
-```
-
-#### Optional (Enhanced Features)
-
-```
-nolds                     # Lyapunov exponents, Hurst exponent (chaos theory metrics)
-PyWavelets                # Wavelet transforms (signal processing)
-openmeteo-requests        # Weather data helper (not strictly required, plain requests works)
-```
-
-### Quick Install
-
-```bash
-pip install -r requirements.txt
-pip install torch --index-url https://download.pytorch.org/whl/cpu
-```
-
----
-
-## Recent Changes
-
-- **Fixed `_rolling()` rest_days bug**: Away team was incorrectly using the home team's rest days in XGBoost features. Each team now correctly uses its own rest day calculation.
-- **Fixed broad exception handling in `backtest.py`**: Changed bare `except Exception` to `except OSError` so that programming errors are no longer silently swallowed.
-- **Added NaN guard for momentum autocorrelation in `enhanced_model.py`**: Prevents NaN values from propagating through the feature pipeline when autocorrelation cannot be computed.
-- **Made `season_regress` configurable via settings**: Was previously hardcoded to 0.33; now loaded from `nfl_elo_settings.json` like all other parameters.
-- **Optimized Elo parameters from optimization**: K=17.30, home_adv=18.12, player_boost=26.52, rest_factor=30.0, form_weight=16.38, division_factor=30.85, win_streak_factor=32.0, homestand_factor=32.0, season_phase_factor=32.0, playoff_hca_factor=2.0, b2b_penalty=3.93, altitude_factor=0.67, rest_advantage_cap=7.0, travel_factor=25.0, sos_factor=20.0, pace_factor=4.0, mean_reversion=17.21, scoring_consistency_factor=5.0. Accuracy: 69.12%.
-- **Enabled previously disabled adjusters**: Travel (25.0), pace (4.0), altitude (0.67), homestand (32.0), b2b (3.93), form (16.38), win streak (32.0), mean reversion (17.21), SOS (20.0), division (30.85), season phase (32.0), and scoring consistency (5.0) factors are now active with optimized values.
-
----
-
-## Disclaimer
-
-This software is for **educational and research purposes only**. It is not financial advice. Sports prediction models are inherently uncertain -- even the best models are wrong 30-35% of the time for NFL moneyline picks. No model can guarantee profits. Past backtest performance does not predict future results. Always gamble responsibly and never risk money you cannot afford to lose.
-
-The prediction probabilities produced by this system are statistical estimates, not certainties. The Predicts $1 contract ledger is a paper-trading simulation tool, not a connection to any real prediction market or sportsbook.
-
----
-
-## License
-
-MIT License
-
-Copyright (c) 2025
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+- **Season spans two calendar years**: Sep--Feb. Season detection uses `year if month >= 9 else year - 1`.
+- **17-game regular season**: Far fewer data points than NBA (82) or MLB (162). This drives several design choices: higher K-factor (17.30 vs NBA's 8.53), narrower rolling window (5 games vs NBA's 10), and wider confidence intervals on all predictions.
+- **Weekly cadence with 7-day rest baseline**: Unlike daily sports, NFL rest is centered at 7 days. Deviations from this baseline (Thursday games after Sunday = 4 days, Monday-to-Sunday = 6 days, bye weeks = 14 days) are all highly predictive.
+- **Thursday Night Football penalty**: The `b2b_penalty = 3.93` captures the measurable drop in performance when teams play on short turnaround. This is the NFL equivalent of NBA back-to-backs.
+- **Position-based injury impact**: QB injuries are catastrophic (-50 Elo), while kicker injuries are minor (-5 Elo). The full injury tier: QB -50, RB -15, WR/TE -12, DEF -10, OL -8, K/P -5.
+- **Win streaks matter more**: With only 17 games, a 3-game winning streak represents 18% of the season. The `win_streak_factor = 32.0` is the highest of any parameter.
+- **Home field advantage varies greatly**: NFL stadiums range from domes (no weather, no altitude) to outdoor venues at altitude (Denver) in extreme weather (Green Bay, Buffalo). The model captures this through altitude factor, weather impact, and the base home advantage.
+- **Advanced stats via nflverse**: EPA (Expected Points Added), CPOE (Completion Percentage Over Expected), and success rate provide play-level efficiency metrics not available in basic box scores. These come from `nfl_data_py` which wraps the nflverse play-by-play dataset.
+- **Weather is a real factor**: Unlike indoor sports, NFL outdoor games are affected by wind, temperature, and precipitation. The weather model sources data from Open-Meteo and adjusts predictions for outdoor stadiums.
+- **Denver is the only altitude team**: Mile High Stadium at 5,280 ft is the only NFL venue at significant elevation. `altitude_factor = 0.67`.
+- **8 divisions**: AFC East/North/South/West, NFC East/North/South/West. Division rivalry factor of 30.85 is among the highest parameters.
+- **Fuzzy team lookup**: `NFLElo.find_team()` accepts full names, abbreviations, partial matches, and close matches. Typing `chiefs`, `KC`, or `Kansas City Chiefs` all work.
+- **Python 3.8+ compatible**: No walrus operators, no `match` statements.
+- **All data files use `nfl_` prefix**: Settings, ratings, caches, and backtest outputs are all namespaced.

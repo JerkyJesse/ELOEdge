@@ -65,6 +65,9 @@ def download_recent_games(csv_file=GAMES_FILE):
             start_date = end_date - timedelta(days=730)
 
         all_games = []
+        failed_chunks = []
+        consecutive_fails = 0
+        total_chunks = 0
         current = start_date.replace(day=1)
         while current <= end_date:
             chunk_start = current.strftime("%Y-%m-%d")
@@ -73,14 +76,20 @@ def download_recent_games(csv_file=GAMES_FILE):
             else:
                 next_month = current.replace(month=current.month + 1, day=1)
             chunk_end = min(next_month - timedelta(days=1), end_date).strftime("%Y-%m-%d")
+            total_chunks += 1
             logging.info("  Fetching %s to %s ...", chunk_start, chunk_end)
             try:
                 sched = statsapi.schedule(start_date=chunk_start, end_date=chunk_end)
             except Exception as chunk_err:
                 logging.warning("  Chunk %s failed: %s", chunk_start, chunk_err)
+                consecutive_fails += 1
+                failed_chunks.append((chunk_start, chunk_end))
+                if consecutive_fails >= 3:
+                    logging.critical("⚠ %d consecutive API failures — possible data gap from %s to %s", consecutive_fails, chunk_start, chunk_end)
                 current = next_month
                 time.sleep(1)
                 continue
+            consecutive_fails = 0
             for g in sched:
                 # Only include completed games (Final status)
                 status = str(g.get("status", "")).strip()
@@ -121,6 +130,9 @@ def download_recent_games(csv_file=GAMES_FILE):
                 })
             current = next_month
             time.sleep(0.5)
+
+        if failed_chunks:
+            logging.warning("Data fetch completed with %d failed chunks out of %d total", len(failed_chunks), total_chunks)
 
         if not all_games and existing_df is None:
             logging.warning("No games retrieved.")

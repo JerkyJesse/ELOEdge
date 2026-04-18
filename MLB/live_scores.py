@@ -14,8 +14,14 @@ def _fetch_schedule_for_date(target_date):
     """Fetch scheduled MLB games for a specific date from the MLB Stats API."""
     try:
         import statsapi
-        date_str = target_date.strftime("%m/%d/%Y")
-        sched = statsapi.schedule(date=date_str)
+        import socket
+        old_timeout = socket.getdefaulttimeout()
+        socket.setdefaulttimeout(30)
+        try:
+            date_str = target_date.strftime("%m/%d/%Y")
+            sched = statsapi.schedule(date=date_str)
+        finally:
+            socket.setdefaulttimeout(old_timeout)
         results = []
         for g in sched:
             home_name = str(g.get("home_name", "")).strip()
@@ -53,8 +59,14 @@ def fetch_live_mlb_scores():
     """Fetch live/final MLB scores for today."""
     try:
         import statsapi
-        date_str = datetime.now().strftime("%m/%d/%Y")
-        sched = statsapi.schedule(date=date_str)
+        import socket
+        old_timeout = socket.getdefaulttimeout()
+        socket.setdefaulttimeout(30)
+        try:
+            date_str = datetime.now().strftime("%m/%d/%Y")
+            sched = statsapi.schedule(date=date_str)
+        finally:
+            socket.setdefaulttimeout(old_timeout)
         results = []
         for g in sched:
             home_name = str(g.get("home_name", "")).strip()
@@ -182,20 +194,28 @@ def show_live_scores_for_open_trades(model):
     iteration = 0
     try:
         while True:
-            iteration += 1
-            if iteration > 1:
-                os.system("cls" if os.name == "nt" else "clear")
-            now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            print(cdim("  [Refresh #%d  -  %s  -  next update in %ds  |  Ctrl+C to stop]"
-                        % (iteration, now_str, REFRESH_SECONDS)))
-            _print_live_scores_once(model)
-            if load_elo_settings().get("autoresolve_enabled", False):
-                _resolved = auto_resolve_finished_trades(model, verbose=True)
-                if _resolved:
-                    print(cok("  [auto-resolve] %d lot(s) settled this refresh." % _resolved))
-            for remaining in range(REFRESH_SECONDS, 0, -1):
-                time.sleep(1)
-                print("\r  %s" % cdim("Next refresh in %2ds ...   " % remaining), end="", flush=True)
-            print()
+            try:
+                iteration += 1
+                if iteration > 1:
+                    os.system("cls" if os.name == "nt" else "clear")
+                now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                print(cdim("  [Refresh #%d  -  %s  -  next update in %ds  |  Ctrl+C to stop]"
+                            % (iteration, now_str, REFRESH_SECONDS)))
+                _print_live_scores_once(model)
+                if load_elo_settings().get("autoresolve_enabled", False):
+                    _resolved = auto_resolve_finished_trades(model, verbose=True)
+                    if _resolved:
+                        print(cok("  [auto-resolve] %d lot(s) settled this refresh." % _resolved))
+                for remaining in range(REFRESH_SECONDS, 0, -1):
+                    time.sleep(1)
+                    print("\r  %s" % cdim("Next refresh in %2ds ...   " % remaining), end="", flush=True)
+                print()
+            except KeyboardInterrupt:
+                raise
+            except Exception as e:
+                logging.error("Live scores error: %s", e)
+                print(f"  \u26a0 Error refreshing scores: {e}. Retrying...")
+                time.sleep(10)
+                continue
     except KeyboardInterrupt:
         print("\n\n  " + cwarn("Live tracker stopped. Returning to main prompt.\n"))

@@ -5,13 +5,21 @@ from datetime import datetime
 
 import numpy as np
 import pandas as pd
-import matplotlib
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
+try:
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    HAS_MPL = True
+except ImportError:
+    HAS_MPL = False
 
 import math
 
-from config import PREDICTS_FILE, get_team_abbr, current_timestamp, load_elo_settings, save_elo_settings
+from config import (PREDICTS_FILE, BACKTEST_FILE, CASH_TRANSACTIONS_FILE,
+                    PORTFOLIO_SETTINGS_FILE, SPORT_DIRS, _PARENT_DIR,
+                    get_team_abbr, current_timestamp,
+                    load_elo_settings, save_elo_settings,
+                    load_portfolio_settings, save_portfolio_settings)
 from color_helpers import (
     cok, cerr, cwarn, chi, cdim, cyel, div, hdr, cbold,
 )
@@ -39,23 +47,50 @@ def odds_input_to_prob(prompt="  Implied prob or American odds (e.g. 62 or -145)
 
 
 def get_current_balance():
-    settings = load_elo_settings()
+    settings = load_portfolio_settings()
     starting = float(settings.get("starting_balance", 0))
-    if starting <= 0:
+    # Net cash flows from deposits/withdrawals
+    txn_df = load_cash_transactions()
+    net_cash = 0.0
+    if not txn_df.empty:
+        txn_df["amount"] = pd.to_numeric(txn_df["amount"], errors="coerce").fillna(0)
+        net_cash = (txn_df[txn_df["type"] == "deposit"]["amount"].sum()
+                    - txn_df[txn_df["type"] == "withdraw"]["amount"].sum())
+    if starting <= 0 and net_cash <= 0:
         return 0.0
-    df = load_predict_lots()
-    if df.empty:
-        return starting
-    numeric_cols = ["entry_cost_total", "realized_cash"]
-    for c in numeric_cols:
-        df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0)
-    spent = df["entry_cost_total"].sum()
-    received = df["realized_cash"].sum()
-    open_df = df[pd.to_numeric(df["contracts_open"], errors="coerce").fillna(0) > 0]
-    return starting - spent + received
+    # Sum entry costs and realized cash across ALL sports
+    total_spent = 0.0
+    total_received = 0.0
+    for sport in SPORT_DIRS:
+        pf = os.path.join(_PARENT_DIR, sport, "predicts_lots.csv")
+        if os.path.exists(pf):
+            try:
+                sdf = pd.read_csv(pf)
+                for c in ["entry_cost_total", "realized_cash"]:
+                    if c in sdf.columns:
+                        sdf[c] = pd.to_numeric(sdf[c], errors="coerce").fillna(0)
+                    else:
+                        sdf[c] = 0.0
+                total_spent += sdf["entry_cost_total"].sum()
+                total_received += sdf["realized_cash"].sum()
+            except Exception:
+                pass
+    return starting + net_cash - total_spent + total_received
 
 
-def calc_kelly_lots(model_prob, market_price_cents, balance=None, kelly_frac=None):
+def load_backtest_accuracy():
+    if not os.path.exists(BACKTEST_FILE):
+        return None
+    try:
+        df = pd.read_csv(BACKTEST_FILE)
+        if "correct" not in df.columns or df.empty:
+            return None
+        return float(pd.to_numeric(df["correct"], errors="coerce").dropna().mean())
+    except Exception:
+        return None
+
+
+def calc_kelly_lots(model_prob, market_price_cents, balance=None, kelly_frac=None, backtest_acc=None):
     if balance is None:
         balance = get_current_balance()
     if kelly_frac is None:
@@ -64,7 +99,8 @@ def calc_kelly_lots(model_prob, market_price_cents, balance=None, kelly_frac=Non
     if balance <= 0 or market_price_cents <= 0 or market_price_cents >= 100:
         return 0, 0.0, 0.0, 0.0
     market_price = market_price_cents / 100.0
-    edge = model_prob - market_price
+    prob_for_edge = backtest_acc if backtest_acc is not None else model_prob
+    edge = prob_for_edge - market_price
     if edge <= 0:
         return 0, 0.0, edge, 0.0
     kelly_full = edge / (1.0 - market_price)
@@ -78,13 +114,18 @@ def show_kelly_recommendation(model_prob, market_price_cents):
     settings = load_elo_settings()
     balance = get_current_balance()
     kelly_frac = float(settings.get("kelly_fraction", 0.25))
+    backtest_acc = load_backtest_accuracy()
     contracts, kelly_full, edge, kelly_adj = calc_kelly_lots(
-        model_prob, market_price_cents, balance, kelly_frac
+        model_prob, market_price_cents, balance, kelly_frac, backtest_acc
     )
     market_price = market_price_cents / 100.0
     div(60)
     print("  %s" % cbold("KELLY CRITERION SIZING"))
     print("    Model prob  : %s" % cok("%.1f%%" % (model_prob * 100)))
+    if backtest_acc is not None:
+        print("    Backtest acc: %s (used for edge)" % chi("%.1f%%" % (backtest_acc * 100)))
+    else:
+        print("    Backtest acc: %s (using model prob)" % cwarn("unavailable"))
     print("    Market price: %s (%s implied)" % (
         chi("%d c" % market_price_cents),
         cdim("%.1f%%" % (market_price * 100))))
@@ -104,34 +145,34 @@ def show_kelly_recommendation(model_prob, market_price_cents):
 
 
 def prompt_balance():
-    settings = load_elo_settings()
-    current = float(settings.get("starting_balance", 0))
-    if current > 0:
-        print("  Current starting balance: %s" % cok("$%.2f" % current))
+    settings = load_portfolio_settings()
+    current_starting = float(settings.get("starting_balance", 0))
+    if current_starting > 0:
+        print("  Current starting balance: %s" % cok("$%.2f" % current_starting))
         change = input("  Update balance? (enter new amount or press Enter to keep): ").strip()
         if not change:
-            return current
+            return current_starting
         try:
             new_bal = float(change)
             if new_bal > 0:
                 settings["starting_balance"] = new_bal
-                save_elo_settings(settings)
-                print(cok("  Starting balance set to $%.2f" % new_bal))
+                save_portfolio_settings(settings)
+                print(cok("  Starting balance set to $%.2f (shared across all sports)" % new_bal))
                 return new_bal
         except ValueError:
             print(cwarn("  Invalid amount, keeping current balance."))
-            return current
+            return current_starting
     else:
         print("\n  %s" % chi("SET STARTING BALANCE"))
-        print("  Enter your starting bankroll for Kelly criterion sizing.")
+        print("  Enter your starting bankroll (shared across all 4 sports).")
         try:
             bal_str = input("  Starting balance ($): ").strip()
             if bal_str:
                 new_bal = float(bal_str)
                 if new_bal > 0:
                     settings["starting_balance"] = new_bal
-                    save_elo_settings(settings)
-                    print(cok("  Starting balance set to $%.2f" % new_bal))
+                    save_portfolio_settings(settings)
+                    print(cok("  Starting balance set to $%.2f (shared across all sports)" % new_bal))
                     return new_bal
         except ValueError:
             pass
@@ -140,21 +181,125 @@ def prompt_balance():
 
 
 def show_balance():
-    settings = load_elo_settings()
+    settings = load_portfolio_settings()
     starting = float(settings.get("starting_balance", 0))
-    kelly_frac = float(settings.get("kelly_fraction", 0.25))
-    if starting <= 0:
-        print(cwarn("  No starting balance set. Use 'balance' to set one."))
+    kelly_frac = float(load_elo_settings().get("kelly_fraction", 0.25))
+    txn_df = load_cash_transactions()
+    total_deposited = 0.0
+    total_withdrawn = 0.0
+    if not txn_df.empty:
+        txn_df["amount"] = pd.to_numeric(txn_df["amount"], errors="coerce").fillna(0)
+        total_deposited = txn_df[txn_df["type"] == "deposit"]["amount"].sum()
+        total_withdrawn = txn_df[txn_df["type"] == "withdraw"]["amount"].sum()
+    net_flow = total_deposited - total_withdrawn
+    if starting <= 0 and net_flow <= 0:
+        print(cwarn("  No starting balance set. Use 'balance' or 'deposit' to fund your account."))
         return
     current = get_current_balance()
-    pnl = current - starting
+    funded = starting + net_flow
+    pnl = current - funded
     pnl_s = cok("$%+.2f" % pnl) if pnl >= 0 else cerr("$%+.2f" % pnl)
-    roi_s = cok("%+.1f%%" % (pnl / starting * 100)) if pnl >= 0 else cerr("%+.1f%%" % (pnl / starting * 100))
-    hdr("BANKROLL STATUS")
+    roi_s = cok("%+.1f%%" % (pnl / funded * 100)) if pnl >= 0 else cerr("%+.1f%%" % (pnl / funded * 100)) if funded > 0 else cdim("N/A")
+    hdr("BANKROLL STATUS (SHARED ACROSS ALL SPORTS)")
     print("  Starting balance : %s" % chi("$%.2f" % starting))
+    if total_deposited > 0 or total_withdrawn > 0:
+        print("  Deposits         : %s" % cok("$%.2f" % total_deposited))
+        print("  Withdrawals      : %s" % cerr("$%.2f" % total_withdrawn))
+        net_s = cok("$%+.2f" % net_flow) if net_flow >= 0 else cerr("$%+.2f" % net_flow)
+        print("  Net cash flow    : %s" % net_s)
+        print("  Total funded     : %s" % chi("$%.2f" % funded))
     print("  Current balance  : %s" % cok("$%.2f" % current))
     print("  P&L              : %s (%s)" % (pnl_s, roi_s))
     print("  Kelly fraction   : %s" % cdim("%.0f%%" % (kelly_frac * 100)))
+
+
+def load_cash_transactions(filename=CASH_TRANSACTIONS_FILE):
+    cols = ["txn_id", "timestamp", "type", "amount", "note"]
+    if os.path.exists(filename):
+        try:
+            df = pd.read_csv(filename)
+            for c in cols:
+                if c not in df.columns:
+                    df[c] = ""
+            return df[cols]
+        except Exception:
+            pass
+    return pd.DataFrame(columns=cols)
+
+
+def save_cash_transactions(df, filename=CASH_TRANSACTIONS_FILE):
+    df.to_csv(filename, index=False)
+
+
+def deposit_cash():
+    hdr("DEPOSIT CASH")
+    current = get_current_balance()
+    if current > 0:
+        print("  Current balance: %s" % cok("$%.2f" % current))
+    try:
+        amt_str = input("  Deposit amount ($): ").strip()
+        if not amt_str:
+            print(cwarn("  Cancelled."))
+            return
+        amount = float(amt_str)
+        if amount <= 0:
+            print(cerr("  Amount must be positive."))
+            return
+    except ValueError:
+        print(cerr("  Invalid amount."))
+        return
+    note = input("  Note (optional): ").strip()
+    df = load_cash_transactions()
+    txn_id = int(pd.to_numeric(df["txn_id"], errors="coerce").max()) + 1 if not df.empty and not df["txn_id"].dropna().empty else 1
+    new_row = pd.DataFrame([{
+        "txn_id": txn_id,
+        "timestamp": current_timestamp(),
+        "type": "deposit",
+        "amount": round(amount, 2),
+        "note": note,
+    }])
+    df = pd.concat([df, new_row], ignore_index=True) if not df.empty else new_row
+    save_cash_transactions(df)
+    new_balance = get_current_balance()
+    print(cok("  Deposited $%.2f. New balance: $%.2f" % (amount, new_balance)))
+
+
+def withdraw_cash():
+    hdr("WITHDRAW CASH")
+    current = get_current_balance()
+    if current <= 0:
+        print(cerr("  No funds available to withdraw. Balance: $%.2f" % current))
+        return
+    print("  Current balance: %s" % cok("$%.2f" % current))
+    try:
+        amt_str = input("  Withdraw amount ($): ").strip()
+        if not amt_str:
+            print(cwarn("  Cancelled."))
+            return
+        amount = float(amt_str)
+        if amount <= 0:
+            print(cerr("  Amount must be positive."))
+            return
+        if amount > current:
+            print(cerr("  Insufficient funds. Available: $%.2f" % current))
+            return
+    except ValueError:
+        print(cerr("  Invalid amount."))
+        return
+    note = input("  Note (optional): ").strip()
+    df = load_cash_transactions()
+    txn_id = int(pd.to_numeric(df["txn_id"], errors="coerce").max()) + 1 if not df.empty and not df["txn_id"].dropna().empty else 1
+    new_row = pd.DataFrame([{
+        "txn_id": txn_id,
+        "timestamp": current_timestamp(),
+        "type": "withdraw",
+        "amount": round(amount, 2),
+        "note": note,
+    }])
+    df = pd.concat([df, new_row], ignore_index=True) if not df.empty else new_row
+    save_cash_transactions(df)
+    new_balance = get_current_balance()
+    print(cok("  Withdrew $%.2f. New balance: $%.2f" % (amount, new_balance)))
 
 
 def load_predict_lots(filename=PREDICTS_FILE):
@@ -495,6 +640,9 @@ def summarize_predict_lots():
 
 
 def plot_pnl_chart(output_file="predicts_pnl.png"):
+    if not HAS_MPL:
+        print("matplotlib not installed -- chart unavailable")
+        return
     summary = summarize_predict_lots()
     if not summary:
         return
