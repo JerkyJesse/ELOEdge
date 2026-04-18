@@ -2,7 +2,7 @@
 
 ## Overview
 
-NHL game prediction system that combines Elo ratings with a 36-model mega-ensemble to produce calibrated win probabilities for every NHL matchup. The system integrates a Predicts $1 binary contract trading ledger for position tracking and P&L analysis. It runs as an interactive CLI application -- no web server, no test framework, no build system.
+NHL game prediction system built on an Elo rating engine with Platt-scaled calibration to produce win probabilities for every NHL matchup. Integrates a Predicts $1 binary contract trading ledger for position tracking and P&L analysis. Runs as an interactive CLI application -- no web server, no build system.
 
 NHL-specific design priorities: per-goalie cumulative Elo sub-ratings (the system's most distinctive feature -- a starting goaltender can single-handedly win or lose a hockey game), overtime factor for OT/shootout outcomes, frequent back-to-back games in the 82-game schedule, two altitude teams (Colorado at 5,280 ft and Utah at 4,226 ft with proportional bonuses), goalie-weighted injury impact (star goalie out = -35 Elo), and cross-year season handling (Oct--Jun).
 
@@ -52,8 +52,6 @@ Type a team name (e.g. `Bruins`) to start a prediction. Type `help` for all comm
 | Command | Description |
 |---------|-------------|
 | `backtest` | Run walk-forward backtest, fit Platt scaler, report accuracy/log loss/Brier |
-| `enhanced` | Run Elo + XGBoost ensemble backtest (80/20 blend) |
-| `enhanced decay` | Run time-decayed ensemble (Elo 95% early to 70% late) |
 
 ### Elo Optimization
 | Command | Description |
@@ -86,21 +84,7 @@ Type a team name (e.g. `Bruins`) to start a prediction. Type `help` for all comm
 ### Analysis
 | Command | Description |
 |---------|-------------|
-| `shap` | SHAP feature importance for XGBoost model |
 | `kelly` | Kelly Criterion bankroll simulation (quarter-Kelly default) |
-
-### Mega-Ensemble (36 Models)
-| Command | Description |
-|---------|-------------|
-| `mega` | Run full mega-ensemble backtest |
-| `mega optimize` | 7-phase per-model optimization (all phases, takes hours) |
-| `mega tune` | Per-model solo optimization (Phase 1 only) |
-| `mega tournament` | Head-to-head model comparison (Phase 2) |
-| `mega ablation` | Ablation study, auto-prune weak models |
-| `mega models` | Show all models with ON/OFF status by tier |
-| `mega on <model>` / `mega off <model>` | Enable/disable individual models |
-| `mega settings` | Show all mega parameter values |
-| `mega set <param>=<value>` | Set mega parameter (e.g., `mega set adj=0.10`) |
 
 ### Trading
 | Command | Description |
@@ -169,96 +153,9 @@ The NHL system's most distinctive feature is its per-goalie cumulative Elo sub-r
 - **Player composite weighting**: Skaters 55% / goalies 45% in overall player score -- goalies are nearly half a team's value
 - **Backfill tool**: `backfill_goalies.py` (NHL-unique) retroactively fills starting goalie data into the game CSV using NHL API boxscore endpoints
 
-### Layer 2: Enhanced XGBoost Ensemble
-
-The `enhanced_model.py` module builds an 80% Elo / 20% XGBoost blended model. The `TeamTracker` class maintains rolling 10-game windows per team, generating 96 features:
-
-- Elo probability and rating differential
-- Player strength differential
-- Per-team rolling stats: GF/GA per game, win%, margins, rest days
-- Pythagorean win expectation
-- Win/loss streaks, scoring consistency, trend indicators
-
-XGBoost is trained walk-forward (no leakage): Elo-only for the first 200 games, then XGBoost trained and retrained every 50 games. Parameters: `max_depth=5, eta=0.03, subsample=0.9, 300 rounds`.
-
-### Layer 3: 36-Model Mega-Ensemble
-
-The `mega_predictor.py` and `mega_backtest.py` modules implement a 36-model stacking ensemble. Each model produces a raw probability independently. A meta-learner (XGBoost, Ridge, or Logistic regression) combines all outputs into a bounded adjustment clamped to +/- `max_adj` (default 0.10) around the Elo anchor probability. All 36 models run in parallel via `ThreadPoolExecutor`.
-
 ### Calibration
 
 `platt.py` applies Platt scaling (logistic regression on logit of raw probability) to produce well-calibrated final outputs. Isotonic regression and beta calibration are also available. The Platt scaler is fitted during the `backtest` command and must be refitted after any parameter change.
-
----
-
-## The 36 Models
-
-### Tier 0 -- Core
-| Model | File | Description |
-|-------|------|-------------|
-| Elo | `elo_model.py` | Base team ratings with goalie sub-ratings and 20+ adjusters |
-| XGBoost | `enhanced_model.py` | 96-feature gradient boosting ensemble |
-
-### Tier 1 -- Proven
-| Model | File | Description |
-|-------|------|-------------|
-| HMM | `hmm_model.py` | Hidden Markov Model (hot/cold team states) |
-| Kalman | `kalman_model.py` | Kalman filter (latent strength estimation) |
-| PageRank | `network_model.py` | PageRank + HITS network/graph analysis |
-| LightGBM | `gbm_models.py` | LightGBM gradient boosting |
-| CatBoost | `gbm_models.py` | CatBoost gradient boosting |
-| MLP | `nn_models.py` | Multi-layer perceptron neural network |
-| LSTM | `nn_models.py` | Long short-term memory recurrent network |
-
-### Tier 2 -- Exotic
-| Model | File | Description |
-|-------|------|-------------|
-| GARCH | `volatility_model.py` | GARCH volatility + Lyapunov + Hurst exponents |
-| Fourier | `signal_model.py` | Fourier/wavelet cycle detection |
-| Survival | `survival_model.py` | Survival analysis (streak hazard rates) |
-| Copula | `copula_model.py` | Copula offense/defense joint dependency |
-
-### Tier 3 -- Information and Physics
-| Model | File | Description |
-|-------|------|-------------|
-| InfoTheory | `information_theory_model.py` | Shannon entropy + KL divergence |
-| Momentum | `momentum_model.py` | Newtonian momentum/inertia model |
-| Markov | `markov_chain_model.py` | Markov chain transition matrices |
-| Clustering | `clustering_model.py` | k-Means team archetypes |
-| GameTheory | `game_theory_model.py` | Nash equilibrium + style matchups |
-
-### Tier 4 -- Classical Ratings
-| Model | File | Description |
-|-------|------|-------------|
-| Poisson | `poisson_model.py` | Poisson/Dixon-Coles goal distributions |
-| Glicko-2 | `glicko_model.py` | Uncertainty-aware ratings |
-| Bradley-Terry | `bradley_terry_model.py` | Maximum likelihood paired comparison |
-| Monte Carlo | `monte_carlo_model.py` | Monte Carlo simulation (2000 sims default) |
-| Random Forest | `random_forest_model.py` | Random Forest bagging diversity |
-
-### Tier 5 -- Sports-Specific
-| Model | File | Description |
-|-------|------|-------------|
-| SRS | `classic_models.py` | Simple Rating System |
-| Colley | `classic_models.py` | Colley Matrix |
-| Log5 | `classic_models.py` | Log5 matchup formula |
-| PythagenPat | `classic_models.py` | Pythagorean win expectation |
-| ExpSmoothing | `classic_models.py` | Exponential smoothing |
-| MeanReversion | `classic_models.py` | Mean reversion model |
-
-### Tier 6 -- Data Enrichment
-| Model | File | Description |
-|-------|------|-------------|
-| Weather | `weather.py` | Open-Meteo weather data (minimal for indoor arenas) |
-| Odds | `odds_tracker.py` | The Odds API moneyline consensus |
-
-### Tier 7 -- Additional
-| Model | File | Description |
-|-------|------|-------------|
-| SVM | `svm_model.py` | SVM classifier (RBF kernel + Platt scaling) |
-| Fibonacci | `fibonacci_model.py` | Fibonacci retracement (EMA-smoothed levels) |
-| EVT | `evt_model.py` | Extreme Value Theory (Generalized Pareto tail risk) |
-| Benford | `benford_model.py` | Benford's Law anomaly detection |
 
 ---
 
@@ -274,51 +171,12 @@ The `mega_predictor.py` and `mega_backtest.py` modules implement a 36-model stac
 | `data_games.py` | Game data download via ESPN public API |
 | `data_players.py` | Player stats download (skater + goalie stats) + team scoring |
 | `backtest.py` | Walk-forward backtest, grid/genetic/bayesian optimizers |
-| `enhanced_model.py` | XGBoost ensemble + SHAP + TeamTracker (96 features) |
 | `platt.py` | Platt scaling, isotonic regression, beta calibration |
 | `metrics.py` | Log loss, Brier, ECE, MCE, BSS, conformal prediction |
 | `elo_set_handler.py` | Shared handler for `set param=value` commands |
 | `single_param_opt.py` | Coordinate descent optimizer (one param at a time) |
 | `cache_utils.py` | Season-aware smart caching for all API data |
 | `color_helpers.py` | Terminal color output wrappers (`cok`, `cerr`, `cwarn`, `chi`, `cdim`, `cbold`) |
-
-### Mega-Ensemble
-| File | Purpose |
-|------|---------|
-| `mega_predictor.py` | `MegaPredictor` class -- live predictions using all 36 models |
-| `mega_backtest.py` | Walk-forward backtest for full mega-ensemble + meta-learner training |
-| `mega_optimizer.py` | 7-phase per-model optimizer (solo, tournament, ablation, DE, validation) |
-| `mega_config.py` | Model registry, on/off switches, per-model hyperparameters |
-| `meta_learner.py` | `MetaLearner` class -- XGBoost/Ridge/Logistic stacking combiner |
-
-### Individual Model Files
-| File | Models |
-|------|--------|
-| `hmm_model.py` | Hidden Markov Model |
-| `kalman_model.py` | Kalman Filter |
-| `network_model.py` | PageRank + HITS |
-| `gbm_models.py` | LightGBM + CatBoost |
-| `nn_models.py` | MLP + LSTM |
-| `random_forest_model.py` | Random Forest |
-| `volatility_model.py` | GARCH + Lyapunov + Hurst |
-| `signal_model.py` | Fourier + Wavelet |
-| `survival_model.py` | Survival Analysis |
-| `copula_model.py` | Copula |
-| `information_theory_model.py` | Shannon Entropy + KL Divergence |
-| `momentum_model.py` | Newtonian Momentum |
-| `markov_chain_model.py` | Markov Chain |
-| `clustering_model.py` | k-Means Clustering |
-| `game_theory_model.py` | Nash Equilibrium |
-| `poisson_model.py` | Poisson / Dixon-Coles |
-| `glicko_model.py` | Glicko-2 |
-| `bradley_terry_model.py` | Bradley-Terry MLE |
-| `monte_carlo_model.py` | Monte Carlo Simulation |
-| `classic_models.py` | SRS, Colley, Log5, PythagenPat, ExpSmoothing, MeanReversion |
-| `svm_model.py` | SVM Classifier |
-| `fibonacci_model.py` | Fibonacci Retracement |
-| `evt_model.py` | Extreme Value Theory |
-| `benford_model.py` | Benford's Law |
-| `moedim_model.py` | Additional model |
 
 ### NHL-Unique Files
 | File | Purpose |
@@ -348,11 +206,8 @@ The `mega_predictor.py` and `mega_backtest.py` modules implement a 36-model stac
 |------|---------|
 | `run_optimize.py` | Standalone optimization runner |
 | `accuracy_optimize.py` | Accuracy-focused optimization |
-| `run_enhanced_all.py` | Run enhanced backtest standalone |
 | `quick_optimizer.py` | Quick parameter sweep |
-| `sweep_enhanced.py` | Enhanced parameter sweep |
-| `master_optimize.py` | Cross-sport master optimization runner |
-| `run_sport_workflow.py` | Automated sport workflow runner |
+| `master_optimize.py` | Cross-sport master optimization runner (ELO phases 1-5, 10) |
 
 ---
 
@@ -382,19 +237,6 @@ The optimization is accuracy-first: the pipeline targets improvements in raw pre
 4. **Auto-optimize** (`autoopt`) -- Automated grid-to-genetic-to-bayesian pipeline
 5. **Super-optimize** (`superopt`) -- Exhaustive 7-phase optimization (9 parameters, takes hours)
 6. **Coordinate descent** (`singleopt`) -- One-param-at-a-time sweep with fine refinement
-7. **Mega optimizer** (`mega optimize`) -- 7-phase per-model optimization for the 36-model ensemble
-
-### Mega-Ensemble Optimizer Phases
-
-The `mega_optimizer.py` runs 7 phases for per-model exhaustive tuning:
-
-- **Phase 0**: Elo-only baseline -- establish the floor
-- **Phase 1**: Per-model solo optimization -- Elo + one model at a time
-- **Phase 2**: Head-to-head tournament -- pairs, triples, top-N combos
-- **Phase 3**: Meta-learner + global tuning -- max_adj, meta_model, retrain_every
-- **Phase 4**: Combined DE fine-tuning -- differential evolution over top numeric params
-- **Phase 5**: Final ablation -- test each model's contribution, prune weak ones
-- **Phase 6**: Validation -- run best config 5 times, report stability
 
 ### Validation After Optimization
 
@@ -463,25 +305,12 @@ Contains all tunable Elo parameters. Key NHL-specific defaults:
 | `form_weight` | 7.71 | Recent form from last 10 games |
 | `season_regress` | 0.33 | 33% team regression; 50% goalie regression at season boundary |
 
-### Mega-Ensemble Settings: `nhl_mega_settings.json`
-
-| Parameter | Default | Notes |
-|-----------|---------|-------|
-| `window` | 10 | Rolling feature window (10-game for 82-game season) |
-| `min_train` | 200 | Games before meta-learner starts predicting |
-| `retrain_every` | 50 | Retrain ML models every 50 games |
-| `max_adj` | 0.10 | Maximum mega-ensemble adjustment (+/- from Elo anchor) |
-| `meta_model` | xgboost | Meta-learner type (xgboost, ridge, or logistic) |
-
 ### Other Generated Files
 
 | File | Purpose |
 |------|---------|
 | `nhl_elo_ratings.json` | Current Elo ratings for all 32 teams |
 | `nhl_platt_scaler.json` | Platt calibration coefficients |
-| `nhl_enhanced_model.json` | XGBoost ensemble metadata |
-| `nhl_xgb_model.json` | Saved XGBoost model weights |
-| `nhl_meta_xgb.json` | Trained meta-learner weights |
 | `nhl_backtest_predictions.csv` | Per-game backtest predictions |
 | `nhl_calibration.csv` | 10-bin calibration table |
 | `predicts_lots.csv` | Trading ledger (positions, P&L) |
@@ -501,7 +330,7 @@ The wallet and portfolio are shared across all sport systems (NBA, NFL, NHL, MLB
 ## Dependencies
 
 **Required:**
-- pandas, numpy, scipy, colorama, tqdm, xgboost, requests, matplotlib
+- pandas, numpy, scipy, colorama, tqdm, requests, matplotlib
 
 **Optional (for advanced models):**
 - torch (MLP, LSTM neural networks)

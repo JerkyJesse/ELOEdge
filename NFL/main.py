@@ -43,8 +43,6 @@ from live_scores import show_live_scores_for_open_trades
 from auto_resolve import auto_resolve_finished_trades
 from html_generator import generate_today_predictions_html, generate_tomorrow_predictions_html
 from help_system import show_help
-from enhanced_model import (run_enhanced_backtest, save_enhanced_model,
-                            load_enhanced_model, shap_feature_importance)
 from injuries import show_injury_report, get_team_injuries, calc_injury_impact, manual_set_injuries, fetch_injury_report
 from single_param_opt import run_coordinate_descent
 
@@ -74,28 +72,6 @@ except ImportError as _e:
     HAS_ADVANCED_STATS = False
     logging.debug("Advanced stats module not available: %s", _e)
 
-try:
-    from mega_backtest import run_mega_backtest
-    HAS_MEGA_BACKTEST = True
-except ImportError as _e:
-    HAS_MEGA_BACKTEST = False
-    logging.debug("Mega backtest not available: %s", _e)
-
-try:
-    from mega_optimizer import (run_mega_optimize, run_quick_optimize,
-                                 run_deep_optimize, run_single_model_optimize)
-    HAS_MEGA_OPTIMIZER = True
-except ImportError as _e:
-    HAS_MEGA_OPTIMIZER = False
-    logging.debug("Mega optimizer not available: %s", _e)
-
-try:
-    from mega_config import (load_model_switches, save_model_switches,
-                              is_model_enabled, print_model_status, ALL_MODELS,
-                              handle_mega_set, print_mega_settings)
-    HAS_MEGA_CONFIG = True
-except ImportError:
-    HAS_MEGA_CONFIG = False
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 
@@ -201,20 +177,6 @@ def dispatch(cmd, model, csv_file):
             print(cwarn("  No lots auto-resolved (no matching final games found in today's feed)."))
         else:
             print(cok("  Auto-resolved %d lot(s)." % count))
-    elif cmd == "enhanced":
-        print(chi("  Running enhanced backtest (Elo + XGBoost ensemble)..."))
-        result = run_enhanced_backtest(csv_file, elo_weight=0.8, label="enhanced")
-        if result and result.get("xgb_model"):
-            save_enhanced_model(result)
-            print(cok("  Enhanced model saved."))
-    elif cmd == "enhanced decay":
-        print(chi("  Running enhanced backtest with TIME-DECAYED weighting..."))
-        result = run_enhanced_backtest(csv_file, elo_weight=0.8, label="enhanced-decay", time_decay=True)
-        if result and result.get("xgb_model"):
-            save_enhanced_model(result)
-            print(cok("  Enhanced model saved (time-decayed)."))
-    elif cmd == "shap":
-        shap_feature_importance()
     elif cmd == "bayesian":
         bayesian_optimization(csv_file)
         model = build_model(csv_file)
@@ -283,174 +245,14 @@ def dispatch(cmd, model, csv_file):
                     print(cerr("  %s" % msg))
         except ImportError:
             print(cerr("  Set handler not available. Check elo_set_handler.py"))
-    # ── Mega-ensemble commands ─────────────────────────────────────────
-    elif cmd in ("mega", "megabacktest", "mega backtest"):
-        if HAS_MEGA_BACKTEST:
-            from elo_model import NFLElo
-            settings = load_elo_settings()
-            player_df_fresh = load_player_stats()
-            print(cdim("  Running mega-ensemble backtest (12+ models)..."))
-            print(cdim("  This may take a few minutes."))
-            result = run_mega_backtest(
-                csv_file, sport="nfl",
-                elo_model_class=NFLElo,
-                elo_settings=settings,
-                player_df=player_df_fresh,
-            )
-            if result:
-                print(cok("\n  Mega-ensemble: %.2f%% accuracy | LogLoss: %.4f | Brier: %.4f"
-                          % (result["accuracy"], result["log_loss"], result["brier"])))
-        else:
-            print(cerr("Mega backtest not available. Check imports."))
-    elif cmd in ("mega optimize", "megaopt", "mega opt", "megaoptimize"):
-        if HAS_MEGA_OPTIMIZER:
-            from elo_model import NFLElo
-            settings = load_elo_settings()
-            player_df_fresh = load_player_stats()
-            print(cdim("  Starting mega-ensemble optimization (all phases)..."))
-            print(cdim("  This will take a LONG time. No shortcuts."))
-            print()
-            result = run_deep_optimize(
-                csv_file, sport="nfl",
-                elo_model_class=NFLElo,
-                elo_settings=settings,
-                player_df=player_df_fresh,
-            )
-            if result and result.get("best_results"):
-                br = result["best_results"]
-                print(cok("\n  Optimized: %.2f%% accuracy | LogLoss: %.4f | Brier: %.4f"
-                          % (br["accuracy"], br["log_loss"], br["brier"])))
-                print(cok("  Settings saved. Run 'mega' to use them."))
-        else:
-            print(cerr("Mega optimizer not available. Check imports."))
-    elif cmd in ("mega quick", "megaquick"):
-        if HAS_MEGA_OPTIMIZER:
-            from elo_model import NFLElo
-            settings = load_elo_settings()
-            player_df_fresh = load_player_stats()
-            print(cdim("  Quick mega optimization (grid search only)..."))
-            result = run_quick_optimize(
-                csv_file, sport="nfl",
-                elo_model_class=NFLElo,
-                elo_settings=settings,
-                player_df=player_df_fresh,
-            )
-            if result and result.get("best_results"):
-                br = result["best_results"]
-                print(cok("\n  Optimized: %.2f%% accuracy | LogLoss: %.4f | Brier: %.4f"
-                          % (br["accuracy"], br["log_loss"], br["brier"])))
-                print(cok("  Settings saved. Run 'mega' to use them."))
-        else:
-            print(cerr("Mega optimizer not available. Check imports."))
-    elif cmd in ("mega ablation", "mega ablate", "mega single", "megasingle"):
-        if HAS_MEGA_OPTIMIZER:
-            from elo_model import NFLElo
-            settings = load_elo_settings()
-            player_df_fresh = load_player_stats()
-            print(cdim("  Running single-model ablation study..."))
-            print(cdim("  Tests each model's individual contribution."))
-            print()
-            run_single_model_optimize(
-                csv_file, sport="nfl",
-                elo_model_class=NFLElo,
-                elo_settings=settings,
-                player_df=player_df_fresh,
-            )
-        else:
-            print(cerr("Mega optimizer not available. Check imports."))
-    elif cmd.startswith("mega tune"):
-        if HAS_MEGA_OPTIMIZER:
-            from elo_model import NFLElo
-            settings = load_elo_settings()
-            player_df_fresh = load_player_stats()
-            print(cdim("  Per-model solo optimization (Phase 0 + 1)..."))
-            result = run_quick_optimize(
-                csv_file, sport="nfl",
-                elo_model_class=NFLElo,
-                elo_settings=settings,
-                player_df=player_df_fresh,
-            )
-            if result and result.get("best_results"):
-                br = result["best_results"]
-                print(cok("\n  Tuned: %.2f%% accuracy | LogLoss: %.4f | Brier: %.4f"
-                          % (br["accuracy"], br["log_loss"], br["brier"])))
-        else:
-            print(cerr("Mega optimizer not available. Check imports."))
-    elif cmd in ("mega tournament", "mega tourney"):
-        if HAS_MEGA_OPTIMIZER:
-            from elo_model import NFLElo
-            settings = load_elo_settings()
-            player_df_fresh = load_player_stats()
-            print(cdim("  Head-to-head model tournament (Phase 2)..."))
-            result = run_mega_optimize(
-                csv_file, sport="nfl",
-                elo_model_class=NFLElo,
-                elo_settings=settings,
-                player_df=player_df_fresh,
-                phases=[2],
-            )
-            if result and result.get("best_results"):
-                br = result["best_results"]
-                print(cok("\n  Tournament winner: %.2f%% accuracy | LogLoss: %.4f | Brier: %.4f"
-                          % (br["accuracy"], br["log_loss"], br["brier"])))
-        else:
-            print(cerr("Mega optimizer not available. Check imports."))
-    elif cmd in ("mega models", "mega status", "models"):
-        if HAS_MEGA_CONFIG:
-            sport_dir = os.path.dirname(os.path.abspath(csv_file))
-            switches = load_model_switches("nfl", sport_dir)
-            print_model_status(switches)
-        else:
-            print(cerr("Mega config not available."))
-    elif cmd.startswith("mega on ") or cmd.startswith("mega enable "):
-        if HAS_MEGA_CONFIG:
-            model_name = cmd.split()[-1].strip().lower()
-            sport_dir = os.path.dirname(os.path.abspath(csv_file))
-            switches = load_model_switches("nfl", sport_dir)
-            if model_name in ALL_MODELS:
-                switches[model_name] = True
-                save_model_switches("nfl", sport_dir, switches)
-                print(cok("  Enabled: %s" % model_name))
-            elif model_name == "all":
-                for m in ALL_MODELS:
-                    switches[m] = True
-                save_model_switches("nfl", sport_dir, switches)
-                print(cok("  All models enabled"))
-            else:
-                print(cerr("  Unknown model: %s" % model_name))
-                print(cdim("  Available: %s" % ", ".join(ALL_MODELS)))
-        else:
-            print(cerr("Mega config not available."))
-    elif cmd.startswith("mega set "):
-        if HAS_MEGA_CONFIG:
-            sport_dir = os.path.dirname(os.path.abspath(csv_file))
-            args = cmd[9:]  # everything after "mega set "
-            ok, msg = handle_mega_set(args, "nfl", sport_dir)
-            print(("  " + cok(msg)) if ok else ("  " + cerr(msg)))
-            if ok:
-                print(cwarn("  Tip: run 'mega' to use new settings."))
-        else:
-            print(cerr("Mega config not available."))
-    elif cmd in ("mega settings", "mega params", "mega config"):
-        if HAS_MEGA_CONFIG:
-            sport_dir = os.path.dirname(os.path.abspath(csv_file))
-            print_mega_settings("nfl", sport_dir)
-        else:
-            print(cerr("Mega config not available."))
-    elif cmd.startswith("mega off ") or cmd.startswith("mega disable "):
-        if HAS_MEGA_CONFIG:
-            model_name = cmd.split()[-1].strip().lower()
-            sport_dir = os.path.dirname(os.path.abspath(csv_file))
-            switches = load_model_switches("nfl", sport_dir)
-            if model_name in ALL_MODELS:
-                switches[model_name] = False
-                save_model_switches("nfl", sport_dir, switches)
-                print(cwarn("  Disabled: %s" % model_name))
-            else:
-                print(cerr("  Unknown model: %s" % model_name))
-        else:
-            print(cerr("Mega config not available."))
-    # ── Phase 1: Mega-ensemble data commands ──────────────────────────
+    elif (cmd in ("mega", "megabacktest", "mega backtest", "megaopt", "mega opt",
+                  "megaoptimize", "megaquick", "megasingle", "megaquicksolo",
+                  "mega models", "mega status", "models", "mega settings",
+                  "mega params", "mega config", "enhanced", "enhanced decay",
+                  "shap")
+          or cmd.startswith(("mega ", "enhanced "))):
+        print(cwarn("  '%s' removed -- this is ELO-only now. Run 'help' for current commands." % cmd))
+    # ── Data commands ──────────────────────────────────────────────────
     elif cmd == "odds":
         if HAS_MEGA_DATA:
             show_odds_table("nfl")
@@ -545,7 +347,7 @@ def dispatch(cmd, model, csv_file):
 
 def main():
     print(Back.GREEN + Fore.BLACK + Style.BRIGHT
-          + "  NFL SHARPSTACK  [v4 - 35-Model Mega-Ensemble]  "
+          + "  NFL SHARPSTACK  [ELO-only]  "
           + Style.RESET_ALL)
     div(80)
     print("""
@@ -554,30 +356,17 @@ WORKFLOW:
 2. Type team name (e.g. Chiefs) -> opponent -> home? (a/b/n)?
 3. See calibrated prediction + key player metrics
 4. Type 'y' to log moneyline contract  |  'resolve' after game
-5. Run %s for 35-model ensemble  |  %s to find best settings
 
 PREDICTIONS: <teamname> | today | tomorrow | all | players | injuries | settings
 
 DATA:        refresh | odds | kalshi | weather | advstats | epa | officials
 
-BACKTEST:    backtest | enhanced | enhanced decay | shap
+BACKTEST:    backtest
 
 ELO OPT:    grid | genetic | bayesian | autoopt | superopt | singleopt | results
 
 VALIDATE:    purgedcv | cpcv | pbo | montecarlo | convergence | sliding
              rollingcal | conformal | betacal | kelly
-
-MEGA (35 models):
-  mega                Run mega-ensemble backtest (26+ models)
-  mega optimize       7-phase per-model optimization (best results at all cost)
-  mega quick          Baseline + per-model solo tuning (Phases 0-1)
-  mega tune           Per-model solo optimization (same as mega quick)
-  mega tournament     Head-to-head model tournament (Phase 2)
-  mega ablation       Test each model's contribution, auto-prune bad ones
-  mega models         Show all 35 models with ON/OFF status
-  mega on/off <model> Enable/disable individual models
-  mega settings       Show all mega parameter values
-  mega set adj=0.10   Set mega parameter (adj, meta, retrain, pn, mn, etc.)
 
 SETTINGS (39 Elo params, type 'set' to see all):
   set k=20 | set home=48 | set boost=25 | set rest=40 | set b2b=10
@@ -588,7 +377,7 @@ TRADING:     predicts | balance | resolve | sell | mark | invert | chart
              live | autoresolve | autoresolve on/off
 
              help [command] | quit
-""" % (chi("backtest"), chi("mega"), chi("mega optimize")))
+""" % chi("backtest"))
 
     csv_file = download_recent_games()
     download_player_stats()
@@ -619,16 +408,21 @@ TRADING:     predicts | balance | resolve | sell | mark | invert | chart
         prompt_balance()
 
     KNOWN_CMDS = {
-        "all","refresh","backtest","enhanced","enhanced decay","grid","genetic",
+        "all","refresh","backtest","grid","genetic",
         "bayesian","results","players","settings","predicts","summary","chart",
         "resolve","sell","mark","invert","live","help","autoresolve","balance","deposit","withdraw","portfolio",
         "autoresolve on","autoresolve off","today","html","blog","blogger",
-        "tomorrow","platt","calibrate","injuries","shap","purgedcv","cpcv",
+        "tomorrow","platt","calibrate","injuries","purgedcv","cpcv",
         "pbo","montecarlo","rollingcal","kelly","sliding","convergence",
         "conformal","betacal","autoopt","auto-optimize","auto optimize",
         "superopt","super-optimize","super optimize","super",
         "singleopt","single-opt","single opt","coorddescent","coord",
         "kalshi","kalshi on","kalshi off","kalshi odds","kalshi all","kalshi help",
+        "mega","megabacktest","mega backtest","mega optimize","megaopt","mega opt",
+        "megaoptimize","mega quick","megaquick","mega ablation","mega ablate",
+        "mega single","megasingle","mega tune","mega tournament","mega tourney",
+        "mega models","mega status","models","mega settings","mega params","mega config",
+        "enhanced","enhanced decay","shap",
     }
 
     while True:
@@ -676,8 +470,6 @@ TRADING:     predicts | balance | resolve | sell | mark | invert | chart
                 cal_label = cdim(" (calibrated)") if model._platt_scaler else ""
                 prob_s    = cok("%.1f%%" % (prob * 100))
                 print("\n   %s - %s win probability%s" % (cok(winner), prob_s, cal_label))
-                if model._mega_predictor is None and getattr(model, '_mega_loading', False):
-                    print(cwarn("    Mega-ensemble still loading in background..."))
                 print("    %s Elo: %s  |  %s Elo: %s"
                       % (chi(team_a), cok("%.0f" % model.ratings[team_a]),
                          chi(team_b), cok("%.0f" % model.ratings[team_b])))

@@ -85,10 +85,6 @@ class NFLElo:
         self._consecutive_home = defaultdict(int)  # team -> current home game streak
         self._game_number = defaultdict(int)       # team -> games played this season
         self._platt_scaler = load_platt_scaler()
-        self._xgb_model = None
-        self._xgb_meta  = None
-        self._mega_predictor = None  # MegaPredictor (35-model ensemble)
-        self._mega_loading = False
         self.metadata = {
             "season_label": get_season_label(), "trained_games": 0,
             "saved_at": None, "source_file": None, "settings": self.settings_dict(),
@@ -451,67 +447,9 @@ class NFLElo:
                     else:
                         rb += impact
         raw_p = self.expected_score(ra, rb)
-        # XGBoost ensemble
-        if calibrated and self._xgb_model is not None and self._xgb_meta is not None:
-            xgb_prob = self._xgb_predict(team_a, team_b, raw_p, ra - rb, game_date)
-            if xgb_prob is not None:
-                elo_w = self._xgb_meta.get("elo_weight", 0.8)
-                raw_p = elo_w * raw_p + (1.0 - elo_w) * xgb_prob
-        # Mega-ensemble adjustment (if trained and available)
-        if calibrated and self._mega_predictor is not None:
-            mega_adj = self._mega_predictor.predict(
-                team_a, team_b, raw_p, ra - rb, game_date
-            )
-            raw_p = max(0.02, min(0.98, raw_p + mega_adj))
         if calibrated and self._platt_scaler is not None:
             return apply_platt(raw_p, self._platt_scaler)
         return raw_p
-
-    def _xgb_predict(self, team_a, team_b, elo_prob, elo_diff, game_date):
-        try:
-            import xgboost as xgb
-            from enhanced_model import build_game_features
-            scores_a = self._team_scores.get(team_a, [])
-            scores_b = self._team_scores.get(team_b, [])
-            if len(scores_a) < 3 or len(scores_b) < 3:
-                return None
-
-            def _rolling(scores, team):
-                pf = [s[0] for s in scores[-5:]]
-                pa = [s[1] for s in scores[-5:]]
-                res = [1.0 if s[0] > s[1] else 0.0 for s in scores[-5:]]
-                margins = [s[0] - s[1] for s in scores[-5:]]
-                rd = self.rest_days(team, game_date)
-                return {
-                    "ppg": np.mean(pf), "papg": np.mean(pa),
-                    "win_pct": np.mean(res), "avg_margin": np.mean(margins),
-                    "off_rating": np.mean(pf), "def_rating": np.mean(pa),
-                    "rest_days": rd if rd is not None else 7,
-                    "games_played": len(pf),
-                }
-
-            home_feats = _rolling(scores_a, team_a)
-            away_feats = _rolling(scores_b, team_b)
-            rd_a = self.rest_days(team_a, game_date)
-            rd_b = self.rest_days(team_b, game_date)
-            home_feats["rest_days"] = rd_a if rd_a is not None else 7
-            away_feats["rest_days"] = rd_b if rd_b is not None else 7
-
-            player_diff = (self._player_scores.get(team_a, 0.0)
-                           - self._player_scores.get(team_b, 0.0))
-            fdict = build_game_features(home_feats, away_feats, elo_prob,
-                                        elo_diff, player_diff)
-            if fdict is None:
-                return None
-            feature_cols = self._xgb_meta.get("feature_cols")
-            if not feature_cols:
-                return None
-            fvec = np.array([[fdict[c] for c in feature_cols]])
-            dmat = xgb.DMatrix(fvec, feature_names=feature_cols)
-            return float(self._xgb_model.predict(dmat)[0])
-        except Exception as e:
-            logging.debug("XGB predict failed: %s", e)
-            return None
 
     def pick_winner(self, team_a, team_b, team_a_home=True, neutral_site=False,
                     game_date=None):
@@ -581,8 +519,6 @@ class NFLElo:
         from config import load_elo_settings
         hdr("ELO SETTINGS")
         div()
-        from enhanced_model import load_enhanced_model
-        xgb_model, xgb_meta = load_enhanced_model()
         rows = [
             ("Base Rating",   self.base_rating),
             ("K Factor",      self.k),
@@ -605,8 +541,6 @@ class NFLElo:
             ("Bye Week",      self.bye_week_factor),
             ("Altitude Bonus", ", ".join("%s +%.1f" % (t, b) for t, b in self._altitude_bonus.items()) if self._altitude_bonus else "none (no data)"),
             ("Player Scores", "%d teams loaded" % len(self._player_scores)),
-            ("XGBoost",       "ACTIVE (Elo=80% XGB=20%)" if xgb_model else "not trained -- run 'enhanced'"),
-            ("Mega-Ensemble", self._mega_predictor.get_status() if self._mega_predictor else "not trained -- run 'mega' first"),
             ("Auto-Resolve",  "ON" if load_elo_settings().get("autoresolve_enabled") else "OFF"),
         ]
         for label, val in rows:

@@ -10,8 +10,7 @@ imports the correct modules.
 
 Usage:
     cd NHL   (or NFL, MLB, NBA)
-    python master_optimize.py            # run all phases
-    python master_optimize.py --skip 6   # skip phase 6 (mega backtest)
+    python master_optimize.py            # run all ELO phases
     python master_optimize.py --only 1 2 # run only phases 1 and 2
 
 Phases:
@@ -20,10 +19,6 @@ Phases:
      3  Auto Optimize (grid -> genetic -> bayesian pipeline)
      4  Super Optimize (exhaustive multi-round)
      5  Coordinate Descent (single-param-at-a-time sweeps)
-     6  Mega Backtest (all 35 models, walk-forward)
-     7  Mega Quick Optimize (Phase 0 + 1)
-     8  Mega Full Optimize (all 7 phases)
-     9  Mega Ablation (test each model's contribution)
     10  Final backtest with Platt fitting
     11  Summary
 """
@@ -299,179 +294,6 @@ def phase_5_coordinate_descent():
 
 
 # ══════════════════════════════════════════════════════════════════
-# PHASE 6: Mega Backtest (all 35 models)
-# ══════════════════════════════════════════════════════════════════
-
-def phase_6_mega_backtest():
-    """Run mega-ensemble backtest with all enabled models."""
-    banner("PHASE 6: Mega Backtest (all 35 models)")
-    print("  Walk-forward backtest of the full mega-ensemble")
-
-    from mega_backtest import run_mega_backtest
-
-    settings = load_elo_settings()
-    player_df = load_player_stats()
-
-    t0 = time.time()
-    result = run_mega_backtest(
-        GAMES_FILE,
-        sport=SPORT,
-        elo_model_class=EloClass,
-        elo_settings=settings,
-        player_df=player_df,
-        verbose=True,
-    )
-    elapsed = time.time() - t0
-
-    if result:
-        print(cok("\n  Phase 6 complete"))
-        print("  Accuracy: %.2f%% | LogLoss: %.4f | Brier: %.4f" % (
-            result.get("accuracy", 0), result.get("log_loss", 0), result.get("brier", 0)))
-        record_result(6, "OK", elapsed, {
-            "accuracy": result.get("accuracy", 0),
-            "log_loss": result.get("log_loss", 0),
-            "brier": result.get("brier", 0),
-            "n_predictions": result.get("n_predictions", 0),
-        })
-    else:
-        print(cwarn("\n  Phase 6: mega backtest returned no result"))
-        record_result(6, "NO_RESULT", elapsed)
-
-
-# ══════════════════════════════════════════════════════════════════
-# PHASE 7: Mega Quick Optimize (Phases 0 + 1)
-# ══════════════════════════════════════════════════════════════════
-
-def phase_7_mega_quick_optimize():
-    """Run mega optimizer phases 0 + 1 (baseline + per-model solo)."""
-    banner("PHASE 7: Mega Quick Optimize (Phase 0 + 1)")
-    print("  Phase 0: Elo-only baseline")
-    print("  Phase 1: Per-model solo optimization with coordinate descent")
-
-    from mega_optimizer import run_quick_optimize
-
-    settings = load_elo_settings()
-    player_df = load_player_stats()
-
-    t0 = time.time()
-    result = run_quick_optimize(
-        GAMES_FILE,
-        sport=SPORT,
-        elo_model_class=EloClass,
-        elo_settings=settings,
-        player_df=player_df,
-    )
-    elapsed = time.time() - t0
-
-    if result and result.get("best_results"):
-        br = result["best_results"]
-        print(cok("\n  Phase 7 complete"))
-        print("  Accuracy: %.2f%% | LogLoss: %.4f | Brier: %.4f" % (
-            br.get("accuracy", 0), br.get("log_loss", 0), br.get("brier", 0)))
-        record_result(7, "OK", elapsed, {
-            "accuracy": br.get("accuracy", 0),
-            "log_loss": br.get("log_loss", 0),
-            "brier": br.get("brier", 0),
-            "n_evaluations": result.get("n_evaluations", 0),
-        })
-    else:
-        print(cwarn("\n  Phase 7: mega quick optimize returned no result"))
-        record_result(7, "NO_RESULT", elapsed)
-
-
-# ══════════════════════════════════════════════════════════════════
-# PHASE 8: Mega Full Optimize (all 7 phases)
-# ══════════════════════════════════════════════════════════════════
-
-def phase_8_mega_full_optimize():
-    """Run mega optimizer all 7 phases (0-6)."""
-    banner("PHASE 8: Mega Full Optimize (all 7 phases)")
-    print("  Phase 0: Elo baseline")
-    print("  Phase 1: Per-model solo optimization")
-    print("  Phase 2: Head-to-head tournament")
-    print("  Phase 3: Meta-learner + global tuning")
-    print("  Phase 4: Combined DE fine-tuning")
-    print("  Phase 5: Final ablation")
-    print("  Phase 6: Validation")
-    print("  WARNING: This will take a VERY long time.")
-
-    from mega_optimizer import run_mega_optimize
-
-    settings = load_elo_settings()
-    player_df = load_player_stats()
-
-    t0 = time.time()
-    result = run_mega_optimize(
-        GAMES_FILE,
-        sport=SPORT,
-        elo_model_class=EloClass,
-        elo_settings=settings,
-        player_df=player_df,
-        phases=[0, 1, 2, 3, 4, 5, 6],
-        verbose=True,
-    )
-    elapsed = time.time() - t0
-
-    if result and result.get("best_results"):
-        br = result["best_results"]
-        print(cok("\n  Phase 8 complete"))
-        print("  Accuracy: %.2f%% | LogLoss: %.4f | Brier: %.4f" % (
-            br.get("accuracy", 0), br.get("log_loss", 0), br.get("brier", 0)))
-        print("  Total evaluations: %d" % result.get("n_evaluations", 0))
-        record_result(8, "OK", elapsed, {
-            "accuracy": br.get("accuracy", 0),
-            "log_loss": br.get("log_loss", 0),
-            "brier": br.get("brier", 0),
-            "n_evaluations": result.get("n_evaluations", 0),
-        })
-    else:
-        print(cwarn("\n  Phase 8: mega full optimize returned no result"))
-        record_result(8, "NO_RESULT", elapsed)
-
-
-# ══════════════════════════════════════════════════════════════════
-# PHASE 9: Mega Ablation
-# ══════════════════════════════════════════════════════════════════
-
-def phase_9_mega_ablation():
-    """Run ablation study: test each model's contribution."""
-    banner("PHASE 9: Mega Ablation Study")
-    print("  Tests each model's individual contribution")
-    print("  Auto-prunes models that hurt overall performance")
-
-    from mega_optimizer import run_single_model_optimize
-
-    settings = load_elo_settings()
-    player_df = load_player_stats()
-
-    t0 = time.time()
-    result = run_single_model_optimize(
-        GAMES_FILE,
-        sport=SPORT,
-        elo_model_class=EloClass,
-        elo_settings=settings,
-        player_df=player_df,
-        verbose=True,
-    )
-    elapsed = time.time() - t0
-
-    if result:
-        n_hurting = result.get("n_hurting", 0)
-        print(cok("\n  Phase 9 complete"))
-        if n_hurting > 0:
-            print(cwarn("  %d model(s) auto-disabled (hurting performance)" % n_hurting))
-        else:
-            print("  All enabled models are contributing positively")
-        record_result(9, "OK", elapsed, {
-            "n_hurting": n_hurting,
-            "baseline_obj": result.get("baseline_obj", 0),
-        })
-    else:
-        print(cwarn("\n  Phase 9: ablation returned no result"))
-        record_result(9, "NO_RESULT", elapsed)
-
-
-# ══════════════════════════════════════════════════════════════════
 # PHASE 10: Final Backtest with Platt Fitting
 # ══════════════════════════════════════════════════════════════════
 
@@ -523,10 +345,6 @@ def phase_11_summary(total_elapsed):
         3:  "Auto Optimize (grid/genetic/bayesian)",
         4:  "Super Optimize (exhaustive)",
         5:  "Coordinate Descent",
-        6:  "Mega Backtest (all models)",
-        7:  "Mega Quick Optimize (Phase 0+1)",
-        8:  "Mega Full Optimize (all phases)",
-        9:  "Mega Ablation",
         10: "Final Backtest + Platt Fit",
     }
 
@@ -625,10 +443,6 @@ PHASE_MAP = {
     3:  phase_3_auto_optimize,
     4:  phase_4_super_optimize,
     5:  phase_5_coordinate_descent,
-    6:  phase_6_mega_backtest,
-    7:  phase_7_mega_quick_optimize,
-    8:  phase_8_mega_full_optimize,
-    9:  phase_9_mega_ablation,
     10: phase_10_final_backtest,
 }
 

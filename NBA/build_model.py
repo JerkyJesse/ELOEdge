@@ -2,7 +2,6 @@
 
 import os
 import logging
-import threading
 from collections import defaultdict
 
 import pandas as pd
@@ -11,25 +10,6 @@ from config import GAMES_FILE, load_elo_settings, get_season_label
 from elo_model import NBAElo
 from data_players import load_player_stats
 from platt import regress_ratings_to_mean
-from enhanced_model import load_enhanced_model
-
-
-def _load_mega_background(model, sport, csv_file, elo_model_class, settings, player_df):
-    """Load MegaPredictor in background thread so CLI isn't blocked."""
-    try:
-        from mega_predictor import MegaPredictor
-        mega_pred = MegaPredictor(
-            sport=sport, csv_file=csv_file,
-            elo_model_class=elo_model_class, elo_settings=settings,
-            player_df=player_df,
-        )
-        if mega_pred._available:
-            model._mega_predictor = mega_pred
-            logging.info("Mega-ensemble active (%s)", mega_pred.get_status())
-    except Exception as e:
-        logging.debug("Mega-ensemble not available: %s", e)
-    finally:
-        model._mega_loading = False
 
 
 def _calc_altitude_bonus(csv_file=GAMES_FILE):
@@ -166,23 +146,9 @@ def build_model(csv_file=GAMES_FILE):
     if model.load():
         _populate_game_history(model, csv_file)
         model._altitude_bonus = _calc_altitude_bonus(csv_file)
-        xgb_model, xgb_meta = load_enhanced_model()
-        if xgb_model:
-            model._xgb_model = xgb_model
-            model._xgb_meta = xgb_meta
-            logging.info("XGBoost ensemble active (elo_weight=%.1f)",
-                         xgb_meta.get("elo_weight", 0.8))
         player_df = load_player_stats()
         if not player_df.empty:
             model.set_player_stats(player_df)
-        # Mega-ensemble predictor (loads in background thread)
-        model._mega_loading = True
-        t = threading.Thread(
-            target=_load_mega_background,
-            args=(model, "nba", csv_file, NBAElo, settings, player_df),
-            daemon=True,
-        )
-        t.start()
         return model
     if not os.path.exists(csv_file):
         return model
@@ -232,21 +198,9 @@ def build_model(csv_file=GAMES_FILE):
     model.team_names = sorted(model.ratings.keys())
     model._rebuild_lookup()
     model._altitude_bonus = _calc_altitude_bonus(csv_file)
-    xgb_model, xgb_meta = load_enhanced_model()
-    if xgb_model:
-        model._xgb_model = xgb_model
-        model._xgb_meta = xgb_meta
     player_df = load_player_stats()
     if not player_df.empty:
         model.set_player_stats(player_df)
-    # Mega-ensemble predictor (loads in background thread)
-    model._mega_loading = True
-    t = threading.Thread(
-        target=_load_mega_background,
-        args=(model, "nba", csv_file, NBAElo, settings, player_df),
-        daemon=True,
-    )
-    t.start()
     model.metadata.update({
         "season_label":  get_season_label(),
         "trained_games": int(game_count),

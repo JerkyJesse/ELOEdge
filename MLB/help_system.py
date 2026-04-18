@@ -11,10 +11,10 @@ def show_help(topic=""):
         "mark","invert","chart","live","autoresolve","today","html",
         "blog","blogger","quit","help","platt","calibrate",
         "bayesian","purgedcv","cpcv","pbo","montecarlo","rollingcal",
-        "kelly","sliding","convergence","conformal","betacal","shap",
-        "enhanced","advanced","autoopt","superopt","singleopt",
+        "kelly","sliding","convergence","conformal","betacal",
+        "advanced","autoopt","superopt","singleopt",
         "deposit","withdraw","portfolio",
-        "mega","odds","weather","kalshi","injuries","balance","tomorrow",
+        "odds","weather","kalshi","injuries","balance","tomorrow",
         "advstats","statcast",
     }
     if topic and topic not in HELP_TOPICS:
@@ -87,23 +87,6 @@ def show_help(topic=""):
         for cmd, desc in cmds:
             print("  %-22s %s" % (chi(cmd), desc))
         print()
-        print("  MEGA-ENSEMBLE  (35-model stacking system)")
-        div(W)
-        mega_cmds = [
-            ("mega",               "Run full 35-model mega-ensemble backtest"),
-            ("mega optimize",      "7-phase per-model optimization (54 hyperparams, 1-4hr)"),
-            ("mega quick",         "Quick grid search (Phase 1 only, ~15-30min)"),
-            ("mega tune",          "Per-model solo optimization"),
-            ("mega tournament",    "Head-to-head model tournament (Phase 2 only)"),
-            ("mega ablation",      "Single-model ablation study (contribution test)"),
-            ("mega models",        "Show all 35 models with ON/OFF status by tier"),
-            ("mega on/off <model>","Enable/disable individual model (or 'mega on all')"),
-            ("mega settings",      "Show all mega-ensemble parameter values"),
-            ("mega set <p>=<v>",   "Set mega param (e.g., mega set adj=0.10, meta=ridge)"),
-        ]
-        for cmd, desc in mega_cmds:
-            print("  %-22s %s" % (chi(cmd), desc))
-        print()
         print("  DATA & ENRICHMENT")
         div(W)
         data_cmds = [
@@ -134,8 +117,6 @@ def show_help(topic=""):
             ("convergence",        "Elo rating convergence / burn-in analysis"),
             ("conformal",          "Conformal prediction intervals (coverage guarantees)"),
             ("betacal",            "Beta calibration (asymmetric, 3-param)"),
-            ("shap",               "SHAP feature importance for XGBoost ensemble"),
-            ("enhanced decay",     "Enhanced backtest with time-decayed Elo/XGB weighting"),
             ("autoopt",            "Auto-optimize: grid -> genetic -> bayesian, apply best"),
             ("superopt",           "Exhaustive multi-round optimization (all methods, 9 params)"),
             ("singleopt",          "Coordinate descent optimizer (one param at a time)"),
@@ -160,8 +141,6 @@ def show_help(topic=""):
                     "convergence  - Elo burn-in period analysis (chunk accuracy)",
                     "conformal    - Distribution-free prediction intervals with coverage guarantees",
                     "betacal      - 3-parameter beta calibration for asymmetric miscalibration",
-                    "shap         - XGBoost native SHAP feature importance analysis",
-                    "enhanced decay - Time-decayed ensemble (Elo 95%->70%, XGB 5%->30%)",
                     "singleopt    - Coordinate descent (one param at a time, accuracy-focused)",
                     "DSR (Deflated Sharpe Ratio) shown automatically in 'results' command",
                     "ECE/MCE/BSS shown automatically in 'backtest' command output",
@@ -239,20 +218,6 @@ def show_help(topic=""):
                        "Fixes overconfident-on-favorites but well-calibrated-on-underdogs",
                        "If a != b, calibration is asymmetric (beta is better)",
                        "Requires 'backtest' to have been run first"])
-    elif topic == "shap":
-        section("shap", "shap",
-                "SHAP feature importance for XGBoost ensemble.",
-                notes=["Uses XGBoost native pred_contribs (no extra deps)",
-                       "Shows which of the 20 features drive predictions",
-                       "Reveals if XGBoost is just echoing Elo or adding signal",
-                       "Auto-runs at end of 'enhanced', also standalone"])
-    elif topic == "enhanced":
-        section("enhanced / enhanced decay", "enhanced  OR  enhanced decay",
-                "XGBoost ensemble backtest, optionally with time-decayed weighting.",
-                notes=["enhanced: fixed 80/20 Elo/XGBoost blend",
-                       "enhanced decay: transitions from 95%% Elo early to 70%% Elo late",
-                       "Time decay acknowledges XGBoost features are noisy early-season",
-                       "SHAP analysis runs automatically at end"])
     elif topic == "superopt":
         section("superopt", "superopt",
                 "Exhaustive multi-round optimization - finds absolute best settings.",
@@ -364,36 +329,18 @@ def show_help(topic=""):
                        "Shows total shared balance, total P&L, overall ROI",
                        "Shows deposit/withdrawal history summary",
                        "Can also run standalone: python portfolio.py"])
-    elif topic == "mega":
-        section("mega", "mega  OR  mega optimize  OR  mega quick",
-                "35-model mega-ensemble backtest and optimization system.",
-                steps=["mega           - Run full ensemble backtest (all enabled models)",
-                       "mega optimize  - 7-phase per-model optimization (54 hyperparams)",
-                       "mega quick     - Quick grid search (Phase 1 only)",
-                       "mega tune      - Per-model solo optimization",
-                       "mega tournament - Head-to-head model comparison tournament",
-                       "mega ablation  - Test each model's individual contribution"],
-                notes=["35 models across 8 tiers: Elo, XGBoost, HMM, Kalman, LightGBM, LSTM, etc.",
-                       "Meta-learner stacks model outputs via Ridge/Logistic/XGBoost",
-                       "Use 'mega models' to see ON/OFF status per model",
-                       "Use 'mega on/off <model>' to enable/disable (e.g., mega off lstm)",
-                       "Use 'mega set <param>=<value>' to change hyperparams (e.g., mega set adj=0.10)",
-                       "Use 'mega settings' to view all 54 tunable parameters"],
-                examples=["mega", "mega optimize", "mega quick", "mega models", "mega set adj=0.08"])
     elif topic == "odds":
         section("odds", "odds",
                 "Show current betting odds for today's MLB games.",
                 notes=["Fetches live odds from The Odds API (requires API key in config)",
                        "Shows moneyline, spread, and over/under from major books",
-                       "Odds used as features in XGBoost ensemble and mega-ensemble",
                        "Free tier: 500 requests/month (sufficient for daily use)"])
     elif topic == "weather":
         section("weather", "weather",
                 "Show weather report for home ballpark.",
-                notes=["MLB is played outdoors — weather directly impacts game outcomes",
+                notes=["MLB is played outdoors -- weather directly impacts game outcomes",
                        "Wind speed/direction affects home runs; temperature affects ball flight",
-                       "Fetches data from Open-Meteo (free, no API key required)",
-                       "Weather features fed into XGBoost and mega-ensemble models"])
+                       "Fetches data from Open-Meteo (free, no API key required)"])
     elif topic == "kalshi":
         section("kalshi", "kalshi  OR  kalshi on  OR  kalshi off  OR  kalshi odds",
                 "Kalshi prediction market integration.",
@@ -430,6 +377,5 @@ def show_help(topic=""):
                 "Show Statcast/FanGraphs advanced team rankings.",
                 notes=["Shows xwOBA, xERA, barrel rate, hard-hit rate, and more",
                        "Data from pybaseball (Statcast + FanGraphs, free, no API key)",
-                       "Advanced stats used as features in XGBoost and mega-ensemble",
                        "Cache refreshes every 24 hours to avoid excessive API calls"])
     print()

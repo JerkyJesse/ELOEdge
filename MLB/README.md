@@ -1,6 +1,6 @@
-# MLB SharpStack -- 36-Model Mega-Ensemble Prediction System
+# MLB SharpStack -- ELO Prediction System
 
-MLB game prediction engine combining Elo ratings, XGBoost, and a 36-model mega-ensemble with meta-learner stacking. Includes a full contract trading ledger for Kalshi/$1 binary prediction markets.
+MLB game prediction engine built on an Elo rating model with Platt-scaled calibration. Includes a full contract trading ledger for Kalshi/$1 binary prediction markets.
 
 ---
 
@@ -39,9 +39,9 @@ Type `y` after the prediction to log a contract position in the trading ledger.
 
 ---
 
-## Architecture -- Three Prediction Layers
+## Architecture
 
-### Layer 1: Elo Model (elo_model.py)
+### Elo Model (elo_model.py)
 
 Base team ratings (starting at 1500) with 27+ adjustment factors:
 
@@ -57,93 +57,9 @@ Base team ratings (starting at 1500) with 27+ adjustment factors:
 - Season phase, mean reversion, K-decay, surprise-K adaptive learning
 - Playoff detection (October) with reduced HCA
 
-### Layer 2: XGBoost Ensemble (enhanced_model.py)
-
-An 80/20 Elo/XGBoost blend built on 96 rolling features per game:
-
-- TeamTracker maintains 15-game rolling windows per team
-- Features: Elo prob, Elo diff, player diff, runs scored/allowed, win%, margins, rest, Pythagorean expectation, streaks, consistency, trend
-- Walk-forward training with no leakage: Elo-only for the first 200 games while features accumulate
-- Optional time-decay mode: transitions from 95% Elo early season to 70% Elo late season
-- SHAP feature importance via XGBoost native pred_contribs
-
-### Layer 3: 36-Model Mega-Ensemble (mega_predictor.py)
-
-All 36 base models feed into a meta-learner (XGBoost, ridge, or logistic regression) that produces a bounded probability adjustment clamped to +/- max_adj (default 0.08) on top of the Elo+XGBoost probability.
-
-Walk-forward backtest: first 300 games are Elo-only while the meta-learner accumulates training data. ML models retrain every 80 games.
-
 ### Platt Calibration (platt.py)
 
 Final probabilities pass through a logistic regression calibrator (Platt scaling) fitted during backtest. Also supports isotonic regression and 3-parameter beta calibration. Season regression pulls all ratings 33% toward the mean at year boundaries.
-
----
-
-## The 36 Models
-
-### Tier 0 -- Core (always on)
-| Model | Description |
-|-------|-------------|
-| Elo | Elo ratings with 24+ adjustment factors |
-| XGBoost | XGBoost ensemble with 96 rolling features |
-
-### Tier 1 -- Proven
-| Model | Description |
-|-------|-------------|
-| HMM | Hidden Markov Model (hot/cold team states) |
-| Kalman | Kalman Filter (latent strength estimation) |
-| PageRank | PageRank + HITS network/graph analysis |
-| LightGBM | Leaf-wise gradient boosting |
-| CatBoost | Ordered gradient boosting |
-| MLP | Multi-layer perceptron neural network |
-| LSTM | Long Short-Term Memory sequential patterns |
-| SVM | Support Vector Machine (RBF kernel + Platt scaling) |
-
-### Tier 2 -- Exotic / Physics-Inspired
-| Model | Description |
-|-------|-------------|
-| GARCH | Time-varying volatility + Lyapunov/Hurst exponents |
-| Fourier | Fourier/wavelet cycle detection |
-| Survival | Survival analysis (streak hazard rates) |
-| Copula | Offense/defense joint dependency modeling |
-| Fibonacci | Fibonacci retracement (EMA support/resistance levels) |
-| EVT | Extreme Value Theory (Generalized Pareto tail risk) |
-
-### Tier 3 -- Information, Physics, and Pattern Detection
-| Model | Description |
-|-------|-------------|
-| InfoTheory | Shannon entropy + KL divergence |
-| Momentum | Newtonian momentum/inertia model |
-| Markov | Markov chain transition matrices |
-| Clustering | k-Means team archetypes |
-| GameTheory | Nash equilibrium + style matchups |
-| Benford | Benford's Law chi-squared scoring anomaly detection |
-| Moedim | Prophetic cycle timing system |
-
-### Tier 4 -- Classical Rating Systems
-| Model | Description |
-|-------|-------------|
-| Poisson | Poisson/Dixon-Coles score distributions |
-| Glicko | Glicko-2 uncertainty-aware ratings |
-| BradleyTerry | Bradley-Terry MLE paired comparison |
-| MonteCarlo | Monte Carlo simulation (3000 sims default) |
-| RandomForest | Random Forest bagging for diversity |
-
-### Tier 5 -- Sports-Specific
-| Model | Description |
-|-------|-------------|
-| SRS | Simple Rating System (margin + strength of schedule) |
-| Colley | Colley Matrix bias-free ranking |
-| Log5 | Bill James Log5 head-to-head formula |
-| PythagenPat | PythagenPat with dynamic Pythagorean exponent |
-| ExpSmoothing | Exponential smoothing trend tracking |
-| MeanReversion | Mean reversion with Bollinger bands |
-
-### Tier 6 -- Data Enrichment
-| Model | Description |
-|-------|-------------|
-| Weather | Temperature, wind, precipitation impact |
-| Odds | Market odds / closing line value tracking (off by default) |
 
 ---
 
@@ -179,9 +95,6 @@ Final probabilities pass through a logistic regression calibrator (Platt scaling
 | Command | What it does |
 |---------|-------------|
 | `backtest` | Walk-forward backtest + fit Platt calibration scaler |
-| `enhanced` | Run Elo+XGBoost ensemble backtest (80/20 blend) |
-| `enhanced decay` | Enhanced backtest with time-decayed Elo weighting |
-| `shap` | SHAP feature importance analysis on XGBoost model |
 
 ### Elo Optimization
 
@@ -209,22 +122,6 @@ Final probabilities pass through a logistic regression calibrator (Platt scaling
 | `conformal` | Distribution-free prediction sets at 80/90/95% coverage |
 | `betacal` | 3-parameter asymmetric beta calibration |
 | `kelly` | Kelly criterion bankroll simulation (default quarter-Kelly) |
-
-### Mega-Ensemble
-
-| Command | What it does |
-|---------|-------------|
-| `mega` | Run full mega-ensemble backtest with all enabled models |
-| `mega optimize` | 7-phase per-model optimization (takes hours) |
-| `mega quick` | Quick optimization (Phases 0-1 only: baseline + solo tuning) |
-| `mega tune` | Same as `mega quick` |
-| `mega tournament` | Head-to-head model tournament (Phase 2) |
-| `mega ablation` | Test each model's individual contribution, auto-prune weak ones |
-| `mega models` | Show all 36 models with ON/OFF status by tier |
-| `mega on <model>` | Enable a model (or `mega on all`) |
-| `mega off <model>` | Disable a model |
-| `mega settings` | Show all mega-ensemble parameter values |
-| `mega set <param>=<value>` | Set a mega parameter (e.g., `mega set max_adj=0.10`, `mega set meta=ridge`) |
 
 ### Elo Settings (39 tunable parameters)
 
@@ -286,50 +183,11 @@ Always run `backtest` after changing parameters to refit the Platt scaler.
 | `data_games.py` | Game data download via MLB Stats API |
 | `data_players.py` | Player stats download and team composite scoring |
 | `backtest.py` | All backtesting and optimization (~2100 lines) |
-| `enhanced_model.py` | XGBoost ensemble, SHAP, TeamTracker |
 | `platt.py` | Calibration (Platt, isotonic, beta, season regression) |
 | `metrics.py` | Log loss, Brier, ECE, MCE, BSS, conformal metrics |
 | `elo_set_handler.py` | Handler for `set param=value` commands |
 | `single_param_opt.py` | Coordinate descent optimizer |
 | `cache_utils.py` | Season-aware smart caching for all API data |
-
-### Mega-Ensemble System
-| File | Purpose |
-|------|---------|
-| `mega_predictor.py` | `MegaPredictor` class for live predictions using all 36 models |
-| `mega_backtest.py` | Walk-forward backtest for the full mega-ensemble + meta-learner training |
-| `mega_optimizer.py` | 7-phase per-model optimizer (solo, tournament, ablation, DE, validation) |
-| `mega_config.py` | Model registry, on/off switches, per-model hyperparameters |
-| `meta_learner.py` | `MetaLearner` class: XGBoost/ridge/logistic stacking combiner |
-
-### Individual Model Files
-| File | Models |
-|------|--------|
-| `hmm_model.py` | Hidden Markov Model |
-| `kalman_model.py` | Kalman Filter |
-| `network_model.py` | PageRank + HITS |
-| `gbm_models.py` | LightGBM + CatBoost |
-| `nn_models.py` | MLP + LSTM (requires PyTorch) |
-| `random_forest_model.py` | Random Forest |
-| `svm_model.py` | SVM classifier |
-| `volatility_model.py` | GARCH + Lyapunov + Hurst |
-| `signal_model.py` | Fourier/wavelet |
-| `survival_model.py` | Survival analysis |
-| `copula_model.py` | Copula dependency model |
-| `information_theory_model.py` | Shannon entropy + KL divergence |
-| `momentum_model.py` | Newtonian momentum/inertia |
-| `markov_chain_model.py` | Markov chain transitions |
-| `clustering_model.py` | k-Means team archetypes |
-| `game_theory_model.py` | Nash equilibrium |
-| `poisson_model.py` | Poisson/Dixon-Coles |
-| `glicko_model.py` | Glicko-2 |
-| `bradley_terry_model.py` | Bradley-Terry MLE |
-| `monte_carlo_model.py` | Monte Carlo simulation |
-| `classic_models.py` | SRS, Colley, Log5, PythagenPat, ExpSmoothing, MeanReversion |
-| `fibonacci_model.py` | Fibonacci retracement |
-| `evt_model.py` | Extreme Value Theory |
-| `benford_model.py` | Benford's Law |
-| `moedim_model.py` | Moedim prophetic cycle timing |
 
 ### Data Enrichment
 | File | Purpose |
@@ -354,12 +212,10 @@ Always run `backtest` after changing parameters to refit the Platt scaler.
 ### Standalone Utility Scripts
 | File | Purpose |
 |------|---------|
-| `master_optimize.py` | 10-phase master optimization runner (all methods, hours) |
+| `master_optimize.py` | Master optimization runner (ELO phases 1-5, 10) |
 | `run_optimize.py` | Standalone optimization runner |
 | `accuracy_optimize.py` | Accuracy-focused optimization |
-| `run_enhanced_all.py` | Standalone enhanced backtest runner |
 | `quick_optimizer.py` | Quick parameter sweep |
-| `sweep_enhanced.py` | Enhanced parameter sweep |
 
 ---
 
@@ -378,13 +234,12 @@ Six built-in Elo optimizers, all using the objective `score = -(LogLoss * 8 + Br
 
 After any optimizer completes, the winning parameters are saved to `mlb_elo_settings.json` and the Platt scaler is refit.
 
-### master_optimize.py (Standalone, 10+ Phases)
+### master_optimize.py (Standalone ELO Pipeline)
 
-The master optimizer runs every optimization method sequentially. Uses an accuracy-first objective: `(100 - accuracy) + brier * 5.0`.
+The master optimizer runs every ELO optimization method sequentially. Uses an accuracy-first objective: `(100 - accuracy) + brier * 5.0`.
 
 ```bash
-python master_optimize.py                # run all phases
-python master_optimize.py --skip 6       # skip phase 6
+python master_optimize.py                # run all ELO phases
 python master_optimize.py --only 1 2     # run only phases 1 and 2
 ```
 
@@ -395,24 +250,8 @@ python master_optimize.py --only 1 2     # run only phases 1 and 2
 | 3 | Auto Optimize (grid -> genetic -> bayesian pipeline) |
 | 4 | Super Optimize (exhaustive multi-round) |
 | 5 | Coordinate Descent (single-param sweeps) |
-| 6 | Mega Backtest (all 36 models, walk-forward) |
-| 7 | Mega Quick Optimize (Phases 0-1) |
-| 8 | Mega Full Optimize (all 7 mega phases) |
-| 9 | Mega Ablation (test each model's contribution) |
 | 10 | Final backtest with Platt fitting |
 | 11 | Summary |
-
-### Mega-Ensemble Optimization (mega_optimizer.py)
-
-Seven-phase per-model optimization:
-
-- Phase 0: Elo-only baseline to establish the floor
-- Phase 1: Per-model solo optimization (Elo + one model at a time, coordinate descent)
-- Phase 2: Head-to-head tournament (pairs, triples, top-N combinations)
-- Phase 3: Meta-learner + global tuning (max_adj, meta_model, retrain_every, min_train, window)
-- Phase 4: Combined DE fine-tuning (differential evolution over top numeric parameters)
-- Phase 5: Final ablation (test each model's contribution with fully tuned parameters)
-- Phase 6: Validation (run best config 5 times, report stability)
 
 ---
 
@@ -463,31 +302,18 @@ Stores all 39 tunable Elo parameters. Modified via `set param=value` commands or
 - `mean_reversion` (34.23): Regression after extreme results
 - `season_regress` (0.33): 33% pull toward mean at season boundaries
 
-### mlb_mega_settings.json
-
-Controls the mega-ensemble:
-
-- `model_switches`: Per-model on/off toggles (36 models)
-- Per-model hyperparameters (e.g., `mc_sims` for Monte Carlo, `kalman_process_noise`)
-- Meta-learner configuration: model type (`xgboost`, `ridge`, `logistic`), `max_adj`, `retrain_every`, `min_train`, `window`
-
-Modify via `mega set <param>=<value>` or `mega on/off <model>`.
-
 ---
 
 ## Dependencies
 
 Required:
 ```
-pandas, numpy, scipy, colorama, tqdm, xgboost, requests, MLB-StatsAPI, matplotlib
+pandas, numpy, scipy, colorama, tqdm, requests, MLB-StatsAPI, matplotlib
 ```
 
 Optional:
 ```
-torch          -- for MLP and LSTM neural network models
 pybaseball     -- for Statcast/FanGraphs advanced stats
-lightgbm       -- for LightGBM model
-catboost       -- for CatBoost model
 ```
 
 ---
@@ -512,6 +338,4 @@ catboost       -- for CatBoost model
 5. `genetic` or `bayesian` -- fine-tune around best region
 6. `purgedcv` and `cpcv` -- cross-validation stability
 7. `montecarlo` -- statistical significance (p < 0.05 needed)
-8. `enhanced` -- train XGBoost layer; `shap` for feature importance
-9. `mega` -- train 36-model ensemble; `mega optimize` for full tuning
-10. Always rerun `backtest` after parameter changes to refit Platt scaler
+8. Always rerun `backtest` after parameter changes to refit Platt scaler
