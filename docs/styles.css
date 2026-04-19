@@ -559,7 +559,7 @@ img { max-width: 100%; }
 /* ─── Responsive ──────────────────────────────────────────────── */
 @media (max-width: 920px) {
   .hero-grid { grid-template-columns: 1fr; gap: 40px; }
-  .hero-stats { grid-template-columns: repeat(4, 1fr); }
+  .hero-stats { grid-template-columns: 1fr 1fr; }
   .topnav { display: none; }
   .scoreboard { padding: 12px 18px; }
   .hero, .sports, .ratings, .how, .run { padding-left: 20px; padding-right: 20px; }
@@ -567,7 +567,10 @@ img { max-width: 100%; }
   .ratings-table .bar-cell { display: none; }
 }
 @media (max-width: 540px) {
-  .hero-stats { grid-template-columns: 1fr 1fr; }
+  .hero-stats { grid-template-columns: 1fr 1fr; gap: 10px; }
+  .stat-num { font-size: 32px; }
   .ratings-tabs { overflow-x: auto; }
   .tab { padding: 12px 18px; font-size: 18px; }
+  .how-grid { grid-template-columns: 1fr; }
+  .run-grid { grid-template-columns: 1fr; }
 }
