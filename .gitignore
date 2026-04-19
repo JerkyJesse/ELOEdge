@@ -88,3 +88,4 @@ nba_http_cache.sqlite
 today_*_predictions.txt
 today_*.txt
 *_pre_optimize.json
+.cavestack/
