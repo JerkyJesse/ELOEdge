@@ -183,23 +183,23 @@
   <div class="run-grid">
     <div class="run-step">
       <div class="run-label">1 / clone</div>
-      <pre><code>git clone https://github.com/JerkyJesse/ELOEdge.git
-cd ELOEdge/NBA  <span class="comment"># or NFL / MLB / NHL</span></code></pre>
+      <pre><code><span class="cmd">git</span> clone https://github.com/JerkyJesse/ELOEdge.git
+<span class="cmd">cd</span> ELOEdge/NBA  <span class="comment"># or NFL / MLB / NHL</span></code></pre>
     </div>
     <div class="run-step">
       <div class="run-label">2 / install</div>
-      <pre><code>pip install -r requirements.txt</code></pre>
+      <pre><code><span class="cmd">pip</span> install -r requirements.txt</code></pre>
     </div>
     <div class="run-step">
       <div class="run-label">3 / run</div>
-      <pre><code>python main.py
-&gt; refresh        <span class="comment"># pull two years of games + injuries</span>
-&gt; backtest       <span class="comment"># walk-forward + Platt fit</span>
-&gt; today          <span class="comment"># generate today's predictions HTML</span></code></pre>
+      <pre><code><span class="cmd">python</span> main.py
+<span class="prompt">&gt;</span> refresh        <span class="comment"># pull two years of games + injuries</span>
+<span class="prompt">&gt;</span> backtest       <span class="comment"># walk-forward + Platt fit</span>
+<span class="prompt">&gt;</span> today          <span class="comment"># generate today's predictions HTML</span></code></pre>
     </div>
     <div class="run-step">
       <div class="run-label">4 / optimize</div>
-      <pre><code>python run_optimize.py    <span class="comment"># refit all 22 adjusters</span></code></pre>
+      <pre><code><span class="cmd">python</span> run_optimize.py    <span class="comment"># refit all 22 adjusters</span></code></pre>
     </div>
   </div>
 </section>

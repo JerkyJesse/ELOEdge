@@ -339,6 +339,10 @@ img { max-width: 100%; }
   transition: color 0.15s, border-color 0.15s;
 }
 .tab:hover { color: var(--ink-dim); }
+.tab[data-tab="NBA"]:hover:not(.active) { color: rgba(250, 126, 30, 0.72); border-bottom-color: rgba(250, 126, 30, 0.35); }
+.tab[data-tab="NFL"]:hover:not(.active) { color: rgba(79, 140, 255, 0.72); border-bottom-color: rgba(79, 140, 255, 0.35); }
+.tab[data-tab="MLB"]:hover:not(.active) { color: rgba(255, 59, 59, 0.72); border-bottom-color: rgba(255, 59, 59, 0.35); }
+.tab[data-tab="NHL"]:hover:not(.active) { color: rgba(91, 227, 255, 0.72); border-bottom-color: rgba(91, 227, 255, 0.35); }
 .tab.active {
   color: var(--ink);
   border-bottom-color: var(--signal);
@@ -525,6 +529,8 @@ img { max-width: 100%; }
   line-height: 1.6;
 }
 .run-step pre .comment { color: var(--ink-faint); }
+.run-step pre .cmd { color: var(--signal); font-weight: 500; }
+.run-step pre .prompt { color: var(--ink-faint); user-select: none; }
 
 /* ─── Footer ──────────────────────────────────────────────────── */
 .footer {
