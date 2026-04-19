@@ -433,36 +433,44 @@ img { max-width: 100%; }
 }
 .how-grid {
   max-width: 1240px; margin: 32px auto 0;
-  display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-  gap: 24px;
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 0;
 }
 .how-step {
-  background: var(--bg-3);
-  border: 1px solid var(--line);
-  padding: 28px 26px;
-  border-radius: 4px;
+  background: transparent;
+  border: 0;
+  border-top: 2px solid var(--line-2);
+  padding: 22px 28px 28px 0;
   position: relative;
 }
+.how-step::before {
+  content: "";
+  position: absolute; top: -2px; left: 0;
+  width: 32px; height: 2px;
+  background: var(--signal);
+}
 .step-num {
-  font-family: var(--display);
-  font-size: 56px;
-  line-height: 1;
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.22em;
   color: var(--signal);
-  opacity: 0.7;
-  letter-spacing: -0.02em;
-  margin-bottom: 6px;
+  margin-bottom: 14px;
+  display: block;
 }
 .how-step h4 {
   font-family: var(--display);
-  font-size: 22px;
+  font-size: 24px;
   letter-spacing: 0.04em;
-  margin: 4px 0 12px 0;
+  margin: 0 0 12px 0;
   color: var(--ink);
 }
 .how-step p {
   font-size: 14px;
   color: var(--ink-dim);
   margin: 0;
+  line-height: 1.6;
 }
 
 /* ─── Run it ──────────────────────────────────────────────────── */

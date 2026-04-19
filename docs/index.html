@@ -143,23 +143,23 @@
   <h2 class="section-title">How it actually works</h2>
   <div class="how-grid">
     <div class="how-step">
-      <div class="step-num">1</div>
+      <div class="step-num">Step 01</div>
       <h4>Base Elo</h4>
       <p>Classic Arpad Elo with margin-of-victory scaling and home-court adjustment. Initial K-factor and home advantage are tuned per sport via differential evolution.</p>
     </div>
     <div class="how-step">
-      <div class="step-num">2</div>
+      <div class="step-num">Step 02</div>
       <h4>22+ Adjusters</h4>
       <p>Layered on top: rest days, back-to-backs, travel distance, altitude, division rivalry, season phase, win streaks, scoring consistency, mean reversion, plus sport-specific (goalie / starter / weather).</p>
     </div>
     <div class="how-step">
-      <div class="step-num">3</div>
+      <div class="step-num">Step 03</div>
       <h4>Walk-Forward Backtest</h4>
       <p>Train on 2015--2022, hold out 2023--2024. Fit Platt scaler on residuals. ISO-week-within-season block bootstrap for honest p-values on every adjuster.</p>
     </div>
     <div class="how-step">
-      <div class="step-num">4</div>
-      <h4>§7 Gate</h4>
+      <div class="step-num">Step 04</div>
+      <h4>&sect;7 Gate</h4>
       <p>An adjuster KEEPS its spot only if it improves log-loss by &Delta; &le; -0.003 with p &lt; 0.05. No "felt right" features. No vibes. Receipts or it gets cut.</p>
     </div>
   </div>
