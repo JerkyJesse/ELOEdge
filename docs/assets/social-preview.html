@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>ELOEdge social preview</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0a0e14;
+    --bg-2: #0f1520;
+    --ink: #e8edf5;
+    --ink-dim: #8d97a8;
+    --ink-faint: #4a5468;
+    --line: #1f2937;
+    --nba: #fa7e1e;
+    --nfl: #4f8cff;
+    --mlb: #ff3b3b;
+    --nhl: #5be3ff;
+    --signal: #c9ff3a;
+    --signal-2: #5cff00;
+    --mono: 'JetBrains Mono', ui-monospace, Consolas, 'Courier New', monospace;
+    --display: 'Bebas Neue', 'Arial Narrow', 'Inter', system-ui, sans-serif;
+    --body: 'Inter', system-ui, -apple-system, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; width: 1280px; height: 640px; overflow: hidden; }
+  body {
+    width: 1280px; height: 640px;
+    background:
+      radial-gradient(900px 500px at 15% 30%, rgba(91,227,255,0.09), transparent 60%),
+      radial-gradient(700px 400px at 85% 70%, rgba(250,126,30,0.11), transparent 60%),
+      radial-gradient(500px 300px at 60% 20%, rgba(201,255,58,0.06), transparent 60%),
+      var(--bg);
+    color: var(--ink);
+    font-family: var(--body);
+    position: relative;
+  }
+
+  /* top league stripe */
+  .stripe {
+    position: absolute; top: 0; left: 0; right: 0; height: 8px;
+    background: linear-gradient(90deg,
+      var(--nba) 0%, var(--nba) 25%,
+      var(--nfl) 25%, var(--nfl) 50%,
+      var(--mlb) 50%, var(--mlb) 75%,
+      var(--nhl) 75%, var(--nhl) 100%);
+    filter: drop-shadow(0 0 10px rgba(255,255,255,0.22));
+  }
+
+  /* bottom accent bar */
+  .footer-bar {
+    position: absolute; left: 0; right: 0; bottom: 0;
+    height: 84px;
+    background: rgba(5,8,16,0.95);
+    border-top: 1px solid var(--line);
+    padding: 0 64px;
+    z-index: 2;
+  }
+  .footer-inner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: 100%;
+    width: 100%;
+  }
+  .host {
+    font-family: var(--mono);
+    font-size: 28px;
+    font-weight: 700;
+    color: var(--signal);
+    letter-spacing: 0.02em;
+    text-shadow: 0 0 18px rgba(201,255,58,0.4);
+    display: inline-block;
+  }
+  .repo {
+    font-family: var(--mono);
+    font-size: 18px;
+    font-weight: 500;
+    color: var(--ink-dim);
+    letter-spacing: 0.04em;
+    display: inline-block;
+  }
+
+  /* left content block */
+  .content {
+    position: absolute;
+    left: 64px; top: 54px;
+    width: 780px;
+  }
+  .kicker {
+    font-family: var(--mono);
+    font-size: 17px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.24em;
+    color: var(--signal);
+    margin-bottom: 20px;
+  }
+
+  .logo {
+    font-family: var(--display);
+    font-size: 148px;
+    line-height: 0.90;
+    letter-spacing: 0.02em;
+    margin-bottom: 28px;
+    white-space: nowrap;
+  }
+  .logo .bracket { color: var(--ink-faint); margin: 0 8px; }
+  .logo .word { color: var(--ink); }
+  .logo .edge {
+    background: linear-gradient(135deg, var(--signal) 0%, var(--signal-2) 100%);
+    -webkit-background-clip: text; background-clip: text;
+    color: transparent;
+    text-shadow: 0 0 42px rgba(201,255,58,0.32);
+  }
+
+  .tagline {
+    font-family: var(--display);
+    font-size: 50px;
+    letter-spacing: 0.04em;
+    color: var(--ink);
+    margin-bottom: 22px;
+    line-height: 1;
+  }
+  .tagline .nba { color: var(--nba); }
+  .tagline .nfl { color: var(--nfl); }
+  .tagline .mlb { color: var(--mlb); }
+  .tagline .nhl { color: var(--nhl); }
+  .tagline .dot { color: var(--ink-faint); margin: 0 6px; }
+
+  .sub {
+    font-family: var(--mono);
+    font-size: 18px;
+    color: var(--ink-dim);
+    letter-spacing: 0.02em;
+    white-space: nowrap;
+    margin-bottom: 56px;
+  }
+  .url-row {
+    display: flex;
+    align-items: baseline;
+    gap: 24px;
+    font-family: var(--mono);
+    font-weight: 700;
+    white-space: nowrap;
+  }
+  .url-row .host {
+    font-size: 28px;
+    color: var(--signal);
+    letter-spacing: 0.02em;
+    text-shadow: 0 0 18px rgba(201,255,58,0.4);
+  }
+  .url-row .repo {
+    font-size: 17px;
+    color: var(--ink-dim);
+    font-weight: 500;
+    letter-spacing: 0.04em;
+  }
+
+  /* right-side rating bars visualization */
+  .bars-wrap {
+    position: absolute;
+    right: 64px; top: 96px;
+    width: 400px;
+  }
+  .bars-cap {
+    font-family: var(--mono);
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--ink-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.22em;
+    margin-bottom: 18px;
+    text-align: right;
+  }
+  .bars {
+    display: flex; flex-direction: column; gap: 16px;
+  }
+  .row { display: flex; align-items: center; gap: 12px; font-family: var(--mono); font-size: 16px; font-weight: 700; }
+  .row .team { width: 58px; color: var(--ink); }
+  .row .rat  { width: 54px; color: var(--ink); text-align: right; }
+  .track {
+    position: relative;
+    flex: 1;
+    height: 10px;
+    background: var(--bg-2);
+    border: 1px solid var(--line);
+    border-radius: 1px;
+    overflow: hidden;
+  }
+  .track::before {
+    content: "";
+    position: absolute; left: 50%; top: 0; bottom: 0; width: 1px;
+    background: var(--ink-faint); opacity: 0.7;
+  }
+  .fill {
+    position: absolute; top: 0; bottom: 0;
+  }
+  .fill.pos { left: 50%; background: linear-gradient(90deg, var(--signal), var(--signal-2)); }
+  .fill.neg { right: 50%; background: linear-gradient(270deg, #ff5566, #c91222); }
+  .row .delta { width: 52px; font-size: 14px; text-align: right; }
+  .delta.pos { color: var(--signal); }
+  .delta.neg { color: #ff5566; }
+</style>
+</head>
+<body>
+  <div class="stripe"></div>
+
+  <div class="content">
+    <div class="kicker">Open-source Elo rating engine</div>
+    <div class="logo">
+      <span class="bracket">[</span><span class="word">ELO</span><span class="edge">EDGE</span><span class="bracket">]</span>
+    </div>
+    <div class="tagline">
+      Pure Elo across
+      <span class="nba">NBA</span><span class="dot">·</span><span class="nfl">NFL</span><span class="dot">·</span><span class="mlb">MLB</span><span class="dot">·</span><span class="nhl">NHL</span>
+    </div>
+    <div class="sub">Platt-calibrated &nbsp;·&nbsp; walk-forward backtested &nbsp;·&nbsp; no XGBoost cruft</div>
+    <div class="url-row">
+      <span class="host">eloedge.jerkyjesse.com</span>
+      <span class="repo">github.com/JerkyJesse/ELOEdge</span>
+    </div>
+  </div>
+
+  <div class="bars-wrap">
+    <div class="bars-cap">Ratings vs 1500</div>
+    <div class="bars">
+      <div class="row"><span class="team">OKC</span><span class="rat">1712</span><span class="track"><span class="fill pos" style="width:26.5%"></span></span><span class="delta pos">+212</span></div>
+      <div class="row"><span class="team">BOS</span><span class="rat">1654</span><span class="track"><span class="fill pos" style="width:19.3%"></span></span><span class="delta pos">+154</span></div>
+      <div class="row"><span class="team">DEN</span><span class="rat">1588</span><span class="track"><span class="fill pos" style="width:11.0%"></span></span><span class="delta pos">+88</span></div>
+      <div class="row"><span class="team">NYK</span><span class="rat">1523</span><span class="track"><span class="fill pos" style="width:2.9%"></span></span><span class="delta pos">+23</span></div>
+      <div class="row"><span class="team">CHA</span><span class="rat">1402</span><span class="track"><span class="fill neg" style="width:12.3%"></span></span><span class="delta neg">-98</span></div>
+      <div class="row"><span class="team">WAS</span><span class="rat">1318</span><span class="track"><span class="fill neg" style="width:22.8%"></span></span><span class="delta neg">-182</span></div>
+    </div>
+  </div>
+
+</body>
+</html>
