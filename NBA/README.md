@@ -1,4 +1,4 @@
-# NBA Prediction System (SharpStack)
+# NBA Prediction System (ELOEdge)
 
 ## Overview
 

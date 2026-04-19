@@ -5,6 +5,8 @@ from datetime import datetime
 
 import numpy as np
 import pandas as pd
+
+import nba_http  # noqa: F401  # patches nba_api HTTP at import time
 try:
     import matplotlib
     matplotlib.use("Agg")

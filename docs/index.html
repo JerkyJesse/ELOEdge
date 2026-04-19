@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ELOEdge -- Pure Elo Across NBA, NFL, MLB, NHL</title>
+<meta name="description" content="Open-source Elo rating engine for NBA, NFL, MLB, and NHL. Platt-calibrated probabilities, walk-forward backtesting, no XGBoost ensemble cruft.">
+<link rel="stylesheet" href="styles.css">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=JetBrains+Mono:wght@400;700&family=Inter:wght@400;500;700;900&display=swap">
+</head>
+<body>
+
+<!-- Scoreboard header -->
+<header class="scoreboard">
+  <div class="board-glow"></div>
+  <div class="brand">
+    <div class="logo">
+      <span class="bracket">[</span>
+      <span class="word">ELO</span><span class="word edge">EDGE</span>
+      <span class="bracket">]</span>
+    </div>
+    <div class="tagline">Pure Elo. Four sports. Calibrated. Open.</div>
+  </div>
+  <nav class="topnav">
+    <a href="#sports">Sports</a>
+    <a href="#ratings">Live Ratings</a>
+    <a href="#how">How It Works</a>
+    <a href="#run">Run It</a>
+    <a href="https://github.com/JerkyJesse/ELOEdge" target="_blank" rel="noopener">GitHub →</a>
+  </nav>
+</header>
+
+<!-- Hero -->
+<section class="hero">
+  <div class="hero-grid">
+    <div class="hero-text">
+      <h1>
+        <span class="kicker">no ensembles. no XGBoost. no nonsense.</span>
+        <span class="hero-title">just <em>Elo</em> &mdash; tuned per sport, calibrated per game.</span>
+      </h1>
+      <p class="hero-sub">
+        ELOEdge is an Elo-only prediction engine that fits 22+ adjusters per sport
+        (rest, travel, altitude, goalie starts, starting pitchers, weather, division)
+        and squashes raw rating gaps through a Platt-scaled logistic to produce honest
+        win probabilities. Walk-forward backtested. Block-bootstrapped p-values. MIT.
+      </p>
+      <div class="hero-ctas">
+        <a class="btn primary" href="#run">Get Started</a>
+        <a class="btn ghost" href="#ratings">See Live Ratings</a>
+      </div>
+    </div>
+    <div class="hero-stats">
+      <div class="stat-card nba"><div class="stat-num" data-sport="NBA">--</div><div class="stat-label">NBA teams rated</div></div>
+      <div class="stat-card nfl"><div class="stat-num" data-sport="NFL">--</div><div class="stat-label">NFL teams rated</div></div>
+      <div class="stat-card mlb"><div class="stat-num" data-sport="MLB">--</div><div class="stat-label">MLB teams rated</div></div>
+      <div class="stat-card nhl"><div class="stat-num" data-sport="NHL">--</div><div class="stat-label">NHL teams rated</div></div>
+    </div>
+  </div>
+</section>
+
+<!-- Sports cards -->
+<section id="sports" class="sports">
+  <h2 class="section-title">Four sports. Four tunings. One engine.</h2>
+  <div class="sport-cards">
+    <article class="sport-card nba">
+      <div class="card-bar"></div>
+      <h3>NBA</h3>
+      <p class="card-sub">82-game grind, star-driven, back-to-backs.</p>
+      <ul>
+        <li>Rest-day deltas + B2B penalties</li>
+        <li>Altitude bonus for Denver</li>
+        <li>Pace mismatch + injury weighting</li>
+        <li>Cross-year season handling (Oct--Jun)</li>
+      </ul>
+      <a href="https://github.com/JerkyJesse/ELOEdge/tree/main/NBA" class="card-link" target="_blank" rel="noopener">View NBA module →</a>
+    </article>
+    <article class="sport-card nfl">
+      <div class="card-bar"></div>
+      <h3>NFL</h3>
+      <p class="card-sub">17 games, weather rules, division grudges.</p>
+      <ul>
+        <li>Wind/temp/precipitation impacts</li>
+        <li>Bye-week recovery factor</li>
+        <li>Heavy K-factor (small sample)</li>
+        <li>QB-out injury penalty</li>
+      </ul>
+      <a href="https://github.com/JerkyJesse/ELOEdge/tree/main/NFL" class="card-link" target="_blank" rel="noopener">View NFL module →</a>
+    </article>
+    <article class="sport-card mlb">
+      <div class="card-bar"></div>
+      <h3>MLB</h3>
+      <p class="card-sub">162 games, starter swings, park factors.</p>
+      <ul>
+        <li>Starting pitcher Elo sub-rating</li>
+        <li>Pythagorean expectation blend</li>
+        <li>Park factor + altitude (Coors)</li>
+        <li>Lowest K (long sample, low noise)</li>
+      </ul>
+      <a href="https://github.com/JerkyJesse/ELOEdge/tree/main/MLB" class="card-link" target="_blank" rel="noopener">View MLB module →</a>
+    </article>
+    <article class="sport-card nhl">
+      <div class="card-bar"></div>
+      <h3>NHL</h3>
+      <p class="card-sub">Goalie is everything. 82 games, brutal travel.</p>
+      <ul>
+        <li>Per-goalie Elo sub-rating (K=6)</li>
+        <li>50% season regression (vs 33% teams)</li>
+        <li>B2B + travel-distance penalties</li>
+        <li>Win-streak heat factor</li>
+      </ul>
+      <a href="https://github.com/JerkyJesse/ELOEdge/tree/main/NHL" class="card-link" target="_blank" rel="noopener">View NHL module →</a>
+    </article>
+  </div>
+</section>
+
+<!-- Live ratings -->
+<section id="ratings" class="ratings">
+  <h2 class="section-title">Live Power Ratings</h2>
+  <p class="section-sub">
+    Snapshot from the last full backtest. Higher = stronger. League average = 1500.
+  </p>
+  <div class="ratings-tabs">
+    <button class="tab active" data-tab="NBA">NBA</button>
+    <button class="tab" data-tab="NFL">NFL</button>
+    <button class="tab" data-tab="MLB">MLB</button>
+    <button class="tab" data-tab="NHL">NHL</button>
+  </div>
+  <div class="ratings-meta" id="ratings-meta"></div>
+  <div class="ratings-table-wrap">
+    <table class="ratings-table" id="ratings-table">
+      <thead>
+        <tr><th class="rank">#</th><th>Team</th><th class="num">Elo</th><th class="bar-col">vs 1500</th></tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </div>
+</section>
+
+<!-- How it works -->
+<section id="how" class="how">
+  <h2 class="section-title">How it actually works</h2>
+  <div class="how-grid">
+    <div class="how-step">
+      <div class="step-num">1</div>
+      <h4>Base Elo</h4>
+      <p>Classic Arpad Elo with margin-of-victory scaling and home-court adjustment. Initial K-factor and home advantage are tuned per sport via differential evolution.</p>
+    </div>
+    <div class="how-step">
+      <div class="step-num">2</div>
+      <h4>22+ Adjusters</h4>
+      <p>Layered on top: rest days, back-to-backs, travel distance, altitude, division rivalry, season phase, win streaks, scoring consistency, mean reversion, plus sport-specific (goalie / starter / weather).</p>
+    </div>
+    <div class="how-step">
+      <div class="step-num">3</div>
+      <h4>Walk-Forward Backtest</h4>
+      <p>Train on 2015--2022, hold out 2023--2024. Fit Platt scaler on residuals. ISO-week-within-season block bootstrap for honest p-values on every adjuster.</p>
+    </div>
+    <div class="how-step">
+      <div class="step-num">4</div>
+      <h4>§7 Gate</h4>
+      <p>An adjuster KEEPS its spot only if it improves log-loss by &Delta; &le; -0.003 with p &lt; 0.05. No "felt right" features. No vibes. Receipts or it gets cut.</p>
+    </div>
+  </div>
+</section>
+
+<!-- Run it -->
+<section id="run" class="run">
+  <h2 class="section-title">Run it on your machine</h2>
+  <div class="run-grid">
+    <div class="run-step">
+      <div class="run-label">1 / clone</div>
+      <pre><code>git clone https://github.com/JerkyJesse/ELOEdge.git
+cd ELOEdge/NBA  <span class="comment"># or NFL / MLB / NHL</span></code></pre>
+    </div>
+    <div class="run-step">
+      <div class="run-label">2 / install</div>
+      <pre><code>pip install -r requirements.txt</code></pre>
+    </div>
+    <div class="run-step">
+      <div class="run-label">3 / run</div>
+      <pre><code>python main.py
+&gt; refresh        <span class="comment"># pull two years of games + injuries</span>
+&gt; backtest       <span class="comment"># walk-forward + Platt fit</span>
+&gt; today          <span class="comment"># generate today's predictions HTML</span></code></pre>
+    </div>
+    <div class="run-step">
+      <div class="run-label">4 / optimize</div>
+      <pre><code>python run_optimize.py    <span class="comment"># refit all 22 adjusters</span></code></pre>
+    </div>
+  </div>
+</section>
+
+<!-- Footer -->
+<footer class="footer">
+  <div class="footer-row">
+    <div class="footer-brand">
+      <span class="logo small">[ELO<span class="edge">EDGE</span>]</span>
+      <span class="footer-tag">Pure Elo. Four sports.</span>
+    </div>
+    <div class="footer-links">
+      <a href="https://github.com/JerkyJesse/ELOEdge" target="_blank" rel="noopener">GitHub</a>
+      <a href="https://github.com/JerkyJesse/ELOEdge/blob/main/NBA/LICENSE" target="_blank" rel="noopener">MIT License</a>
+      <a href="https://github.com/JerkyJesse/ELOEdge/issues" target="_blank" rel="noopener">Issues</a>
+    </div>
+  </div>
+  <div class="footer-meta">
+    Built with Elo (1959, Arpad Elo). Calibrated with Platt scaling (1999, John Platt).
+    No model is the truth. Every model is a bet on the future.
+  </div>
+</footer>
+
+<script src="script.js"></script>
+</body>
+</html>

@@ -7,7 +7,13 @@ from datetime import datetime, timedelta
 
 import pandas as pd
 
+import nba_http  # noqa: F401  # patches nba_api HTTP at import time
+from nba_http import wrap_with_budget, BudgetExceeded, log_fetch
+from breaker import Breaker, BreakerOpen
 from config import GAMES_FILE, get_season_label, is_cache_stale
+from sources import FallbackUnavailable
+
+_NBA_API_BREAKER = Breaker("nba_api")
 
 
 def validate_games_df(df):
@@ -91,30 +97,80 @@ def download_recent_games(csv_file=GAMES_FILE):
 
     date_from = last_date_str if last_date_str else (datetime.now() - timedelta(days=730)).strftime("%Y-%m-%d")
     season_str = get_season_label()
-    logging.info("Downloading NBA games from %s via nba_api LeagueGameLog...", date_from)
+    t_start = time.time()
+    all_games = []
+    nba_api_ok = False
+    breaker_open = False
     try:
-        all_games = []
+        _NBA_API_BREAKER.before_call()
+        logging.info("Downloading NBA games from %s via nba_api LeagueGameLog...", date_from)
         failed_chunks = []
         consecutive_fails = 0
         total_chunks = 2
         try:
-            all_games.extend(_fetch_and_process_season_type(season_str, "Regular Season", date_from))
+            with wrap_with_budget(45, "leaguegamelog_regular"):
+                all_games.extend(_fetch_and_process_season_type(season_str, "Regular Season", date_from))
             consecutive_fails = 0
-        except Exception as chunk_err:
+        except (Exception, BudgetExceeded) as chunk_err:
             logging.warning("  Regular Season fetch failed: %s", chunk_err)
             consecutive_fails += 1
             failed_chunks.append((date_from, "Regular Season"))
         try:
-            all_games.extend(_fetch_and_process_season_type(season_str, "Playoffs", date_from))
+            with wrap_with_budget(45, "leaguegamelog_playoffs"):
+                all_games.extend(_fetch_and_process_season_type(season_str, "Playoffs", date_from))
             consecutive_fails = 0
-        except Exception as chunk_err:
+        except (Exception, BudgetExceeded) as chunk_err:
             logging.warning("  Playoffs fetch failed: %s", chunk_err)
             consecutive_fails += 1
             failed_chunks.append((date_from, "Playoffs"))
-        if consecutive_fails >= 2:
-            logging.critical("⚠ %d consecutive API failures — possible data gap from %s to present", consecutive_fails, date_from)
-        if failed_chunks:
-            logging.warning("Data fetch completed with %d failed chunks out of %d total", len(failed_chunks), total_chunks)
+        latency_ms = (time.time() - t_start) * 1000
+        if consecutive_fails >= 2 and not all_games:
+            _NBA_API_BREAKER.on_fail()
+            logging.critical("⚠ %d consecutive API failures — falling back to ESPN", consecutive_fails)
+            log_fetch("nba_api", "fail", latency_ms=latency_ms)
+        else:
+            _NBA_API_BREAKER.on_success()
+            nba_api_ok = True
+            if failed_chunks:
+                logging.warning("Partial fetch: %d/%d chunks failed", len(failed_chunks), total_chunks)
+                log_fetch("nba_api", "partial", latency_ms=latency_ms, rows=len(all_games))
+            else:
+                log_fetch("nba_api", "ok", latency_ms=latency_ms, rows=len(all_games))
+    except BreakerOpen as be:
+        breaker_open = True
+        logging.warning("nba_api breaker open: %s — skipping straight to balldontlie", be)
+        log_fetch("nba_api", "breaker_open", latency_ms=(time.time() - t_start) * 1000)
+
+    # Chunk 2 fallback: ESPN hidden JSON when nba_api down or breaker open.
+    # ESPN = no key, no account, no rate tier — same endpoint espn.com itself uses.
+    if not nba_api_ok:
+        try:
+            from sources import espn as _espn
+            end_date = datetime.now().strftime("%Y-%m-%d")
+            espn_t = time.time()
+            logging.info("Attempting ESPN fallback (%s -> %s)...", date_from, end_date)
+            espn_df = _espn.get_game_logs(date_from, end_date)
+            espn_rows = espn_df.to_dict("records")
+            all_games.extend(espn_rows)
+            log_fetch("espn", "ok",
+                      latency_ms=(time.time() - espn_t) * 1000,
+                      rows=len(espn_rows))
+            logging.info("ESPN fallback: +%d games", len(espn_rows))
+        except FallbackUnavailable as fe:
+            logging.warning("ESPN unavailable: %s", fe)
+            log_fetch("espn", "fail",
+                      latency_ms=(time.time() - t_start) * 1000)
+        except Exception as fe:
+            logging.error("ESPN fallback crashed: %s", fe, exc_info=True)
+            log_fetch("espn", "error",
+                      latency_ms=(time.time() - t_start) * 1000)
+
+        if not all_games:
+            if os.path.exists(csv_file):
+                logging.warning("All sources failed. Serving stale CSV: %s", csv_file)
+                return csv_file
+            return None
+    try:
         if not all_games and existing_df is None:
             logging.warning("No games retrieved.")
             return csv_file if os.path.exists(csv_file) else None

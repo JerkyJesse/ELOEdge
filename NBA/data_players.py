@@ -7,6 +7,8 @@ import logging
 import numpy as np
 import pandas as pd
 
+import nba_http  # noqa: F401  # patches nba_api HTTP at import time
+from nba_http import wrap_with_budget, BudgetExceeded, log_fetch
 from config import (
     PLAYER_STATS_FILE, ADVANCED_STATS_FILE, TEAM_ABBR,
     get_season_label, get_team_abbr, is_cache_stale,
@@ -19,13 +21,15 @@ def download_player_stats(csv_file=PLAYER_STATS_FILE):
         logging.info("Using cached player stats %s", csv_file)
         return csv_file
     logging.info("Downloading NBA player per-game stats via nba_api...")
+    t_start = time.time()
     try:
         from nba_api.stats.endpoints import leaguedashplayerstats
         time.sleep(1)
-        stats = leaguedashplayerstats.LeagueDashPlayerStats(
-            season=get_season_label(), season_type_all_star="Regular Season",
-            per_mode_detailed="PerGame",
-        )
+        with wrap_with_budget(45, "leaguedashplayerstats_pergame"):
+            stats = leaguedashplayerstats.LeagueDashPlayerStats(
+                season=get_season_label(), season_type_all_star="Regular Season",
+                per_mode_detailed="PerGame",
+            )
         df = stats.get_data_frames()[0]
         df = df.rename(columns={
             "PLAYER_NAME":"Player","TEAM_ABBREVIATION":"Tm","GP":"G","MIN":"MP",
@@ -41,10 +45,16 @@ def download_player_stats(csv_file=PLAYER_STATS_FILE):
         if len(df) < 150:
             raise ValueError("Player table too small: %d" % len(df))
         df.to_csv(csv_file, index=False)
+        latency_ms = (time.time() - t_start) * 1000
+        log_fetch("nba_api", "ok", latency_ms=latency_ms, rows=len(df))
         logging.info("Downloaded %d players -> %s", len(df), csv_file)
         return csv_file
-    except Exception as e:
+    except (Exception, BudgetExceeded) as e:
+        latency_ms = (time.time() - t_start) * 1000
+        log_fetch("nba_api", "fail", latency_ms=latency_ms)
         logging.warning("nba_api player stats failed (%s).", e)
+        if os.path.exists(csv_file):
+            logging.warning("Serving stale CSV: %s", csv_file)
         return csv_file if os.path.exists(csv_file) else None
 
 
@@ -53,13 +63,15 @@ def download_advanced_stats(csv_file=ADVANCED_STATS_FILE):
         logging.info("Using cached advanced stats %s", csv_file)
         return csv_file
     logging.info("Downloading NBA advanced player stats via nba_api...")
+    t_start = time.time()
     try:
         from nba_api.stats.endpoints import leaguedashplayerstats
         time.sleep(1)
-        stats = leaguedashplayerstats.LeagueDashPlayerStats(
-            season=get_season_label(), season_type_all_star="Regular Season",
-            per_mode_detailed="PerGame", measure_type_detailed_defense="Advanced",
-        )
+        with wrap_with_budget(45, "leaguedashplayerstats_advanced"):
+            stats = leaguedashplayerstats.LeagueDashPlayerStats(
+                season=get_season_label(), season_type_all_star="Regular Season",
+                per_mode_detailed="PerGame", measure_type_detailed_defense="Advanced",
+            )
         df = stats.get_data_frames()[0]
         df = df.rename(columns={
             "PLAYER_NAME":"Player","TEAM_ABBREVIATION":"Tm","GP":"G","MIN":"MP",
@@ -71,10 +83,16 @@ def download_advanced_stats(csv_file=ADVANCED_STATS_FILE):
                 df[c] = pd.to_numeric(df[c], errors="coerce")
         df = df.dropna(subset=["Player","Tm"])
         df.to_csv(csv_file, index=False)
+        latency_ms = (time.time() - t_start) * 1000
+        log_fetch("nba_api", "ok", latency_ms=latency_ms, rows=len(df))
         logging.info("Downloaded %d advanced rows -> %s", len(df), csv_file)
         return csv_file
-    except Exception as e:
+    except (Exception, BudgetExceeded) as e:
+        latency_ms = (time.time() - t_start) * 1000
+        log_fetch("nba_api", "fail", latency_ms=latency_ms)
         logging.warning("Advanced stats download failed (%s).", e)
+        if os.path.exists(csv_file):
+            logging.warning("Serving stale advanced CSV: %s", csv_file)
         return csv_file if os.path.exists(csv_file) else None
 
 

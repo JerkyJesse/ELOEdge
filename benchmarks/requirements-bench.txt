@@ -1,0 +1,7 @@
+# Benchmarks module deps (design §5). NOT merged into top-level requirements.txt.
+#
+# Note: design §5 pinned `riix>=0.2.0,<0.3` but current PyPI max is 0.0.6.
+# API wrappers in glicko2.py / openskill_rate.py insulate from churn per §9.
+riix==0.0.6
+properscoring>=0.1
+openskill>=5.0

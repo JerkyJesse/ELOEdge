@@ -1,4 +1,4 @@
-# NFL Prediction System (SharpStack)
+# NFL Prediction System (ELOEdge)
 
 ## Overview
 

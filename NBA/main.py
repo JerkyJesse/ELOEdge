@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-NBA SHARPSTACK + PREDICTS $1 CONTRACT TRACKER
-v3: Elo + XGBoost ensemble, rest days, injury awareness
+NBA ELOEdge -- Elo-only predictions + Predicts $1 contract tracker.
+Rest days, back-to-back penalties, injury awareness, Platt-calibrated.
 """
 
 import os
@@ -51,10 +51,10 @@ try:
     from odds_tracker import show_odds_table, get_today_odds, find_game_odds
     from weather import show_weather_report, get_game_weather, compute_weather_impact
     pass  # sentiment module removed
-    HAS_MEGA_DATA = True
+    HAS_DATA_MODULES = True
 except ImportError as _e:
-    HAS_MEGA_DATA = False
-    logging.debug("Mega-ensemble data modules not available: %s", _e)
+    HAS_DATA_MODULES = False
+    logging.debug("Optional data modules not available: %s", _e)
 
 try:
     from kalshi import find_kalshi_odds, show_kalshi_odds
@@ -234,16 +234,9 @@ def dispatch(cmd, model, csv_file):
                     print(cerr("  %s" % msg))
         except ImportError:
             print(cerr("  Set handler not available. Check elo_set_handler.py"))
-    elif (cmd in ("mega", "megabacktest", "mega backtest", "megaopt", "mega opt",
-                  "megaoptimize", "megaquick", "megasingle", "megaquicksolo",
-                  "mega models", "mega status", "models", "mega settings",
-                  "mega params", "mega config", "enhanced", "enhanced decay",
-                  "shap")
-          or cmd.startswith(("mega ", "enhanced "))):
-        print(cwarn("  '%s' removed -- this is ELO-only now. Run 'help' for current commands." % cmd))
-    # ── Odds / Weather / Sentiment commands ─────────────────────────────
+    # ── Odds / Weather commands ─────────────────────────────────────────
     elif cmd == "odds":
-        if HAS_MEGA_DATA:
+        if HAS_DATA_MODULES:
             show_odds_table("nba")
         else:
             print(cerr("Odds module not available. pip install requests"))
@@ -283,7 +276,7 @@ def dispatch(cmd, model, csv_file):
         else:
             print(cwarn("  Unknown kalshi subcommand: '%s'. Try 'kalshi help'." % sub))
     elif cmd == "weather":
-        if HAS_MEGA_DATA:
+        if HAS_DATA_MODULES:
             team = input(chi("  Home team: ")).strip()
             if team:
                 found = model.find_team(team)
@@ -375,11 +368,6 @@ TRADING:     predicts | balance | resolve | sell | mark | invert | chart
         "superopt","super-optimize","super optimize","super",
         "singleopt","single-opt","single opt","coorddescent","coord",
         "kalshi","kalshi on","kalshi off","kalshi odds","kalshi all","kalshi help",
-        "mega","megabacktest","mega backtest","mega optimize","megaopt","mega opt",
-        "megaoptimize","mega quick","megaquick","mega ablation","mega ablate",
-        "mega single","megasingle","mega tune","mega tournament","mega tourney",
-        "mega models","mega status","models","mega settings","mega params","mega config",
-        "enhanced","enhanced decay","shap",
     }
 
     while True:

@@ -40,6 +40,7 @@ predicts_lots.csv
 *_pnl_chart.png
 *.html
 !README.md
+!docs/**/*.html
 
 # ── Python ──
 __pycache__/
@@ -77,3 +78,13 @@ catboost_info/
 =*
 *_meta_xgb.json
 weather_cache.json
+
+# ── HTTP / runtime caches ──
+*_http_cache.sqlite
+nba_http_cache.sqlite
+.breaker_state.json
+
+# ── Daily prediction text dumps ──
+today_*_predictions.txt
+today_*.txt
+*_pre_optimize.json

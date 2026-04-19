@@ -1,4 +1,4 @@
-# NHL Prediction System (SharpStack)
+# NHL Prediction System (ELOEdge)
 
 ## Overview
 
@@ -347,7 +347,7 @@ The wallet and portfolio are shared across all sport systems (NBA, NFL, NHL, MLB
 - **Season spans two calendar years**: Oct--Jun. Season detection uses `year + 1 if month >= 10`.
 - **82-game season**: Same as NBA, providing ample data for model training. The 10-game rolling window matches NBA's window size.
 - **No ties**: NHL games always produce a winner through overtime or shootout. The `overtime_factor = 5.0` adjusts for OT outcomes.
-- **Goalie is everything**: The per-goalie Elo sub-rating system is the NHL system's most distinctive feature. Unlike any other sport in the SharpStack family, individual goaltender performance is tracked with its own K-factor (K_GOALIE=6) and more aggressive season regression (50% vs 33% for teams).
+- **Goalie is everything**: The per-goalie Elo sub-rating system is the NHL system's most distinctive feature. Unlike any other sport in the ELOEdge family, individual goaltender performance is tracked with its own K-factor (K_GOALIE=6) and more aggressive season regression (50% vs 33% for teams).
 - **Goalie injury tiers**: Star goaltender (20+ wins or .910+ SV%) = -35 Elo, starting goaltender (10+ wins) = -25 Elo, backup goaltender = -15 Elo. A star goalie injury is roughly 50% of a team's total value.
 - **Two altitude teams**: Colorado Avalanche at 5,280 ft gets the full altitude bonus; Utah Hockey Club at 4,226 ft (relocated from Arizona in 2024) gets a proportional bonus scaled by `(elevation - 4000) / (5280 - 4000)`.
 - **Back-to-backs are common and impactful**: NHL teams frequently play back-to-back games, and the `b2b_penalty = 18.0` is much higher than NBA's 0.0 (where rest_factor handles it instead). In hockey, the goaltender rarely plays both ends of a back-to-back, making starter identification even more critical.

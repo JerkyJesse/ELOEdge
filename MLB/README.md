@@ -1,4 +1,4 @@
-# MLB SharpStack -- ELO Prediction System
+# MLB ELOEdge -- ELO Prediction System
 
 MLB game prediction engine built on an Elo rating model with Platt-scaled calibration. Includes a full contract trading ledger for Kalshi/$1 binary prediction markets.
 
