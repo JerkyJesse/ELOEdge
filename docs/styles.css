@@ -381,7 +381,7 @@ img { max-width: 100%; }
 }
 .ratings-table thead th.num, .ratings-table thead th.bar-col { text-align: right; }
 .ratings-table thead th.rank { width: 60px; }
-.ratings-table thead th.bar-col { width: 220px; }
+.ratings-table thead th.bar-col { width: 240px; }
 .ratings-table tbody td {
   padding: 11px 18px;
   border-bottom: 1px solid var(--line);
@@ -409,10 +409,11 @@ img { max-width: 100%; }
   border-radius: 1px;
   position: relative;
   vertical-align: middle;
+  overflow: hidden;
 }
 .bar-track::before {
   content: "";
-  position: absolute; left: 50%; top: -2px; bottom: -2px;
+  position: absolute; left: 50%; top: 0; bottom: 0;
   width: 1px;
   background: var(--ink-faint);
   opacity: 0.5;
@@ -423,6 +424,19 @@ img { max-width: 100%; }
 }
 .bar-fill.pos { left: 50%; background: linear-gradient(90deg, var(--signal), var(--signal-2)); }
 .bar-fill.neg { right: 50%; background: linear-gradient(270deg, #ff5566, #c91222); }
+.bar-delta {
+  display: inline-block;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-dim);
+  margin-left: 8px;
+  min-width: 36px;
+  text-align: left;
+  vertical-align: middle;
+  letter-spacing: -0.01em;
+}
+.bar-delta.pos { color: var(--signal); }
+.bar-delta.neg { color: #ff5566; }
 
 /* ─── How it works ────────────────────────────────────────────── */
 .how {

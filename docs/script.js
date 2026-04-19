@@ -53,21 +53,26 @@
     const tbody = document.querySelector('#ratings-table tbody');
     tbody.innerHTML = '';
     const teams = data.all || [];
-    const maxAbs = Math.max(...teams.map(t => Math.abs(t.rating - 1500)), 1);
+    // Fixed ±400 Elo scale: +400 ≈ 91% win expectation vs 1500 opponent.
+    // Bar fills half of the track (50%), so max pct per side = 50.
+    const SCALE = 400;
 
     teams.forEach((t, i) => {
       const tr = document.createElement('tr');
       const delta = t.rating - 1500;
-      const pct = (Math.abs(delta) / maxAbs) * 100;
+      const pct = Math.min(Math.abs(delta) / SCALE, 1) * 50;
       const side = delta >= 0 ? 'pos' : 'neg';
+      const deltaRound = Math.round(delta);
+      const deltaLabel = (deltaRound >= 0 ? '+' : '') + deltaRound;
       tr.innerHTML = `
         <td class="rank">${i + 1}</td>
         <td class="team">${escapeHtml(t.team)}</td>
         <td class="num">${t.rating.toFixed(0)}</td>
         <td class="bar-cell">
-          <span class="bar-track">
+          <span class="bar-track" role="img" aria-label="${deltaLabel} Elo vs 1500">
             <span class="bar-fill ${side}" style="width:${pct.toFixed(1)}%"></span>
           </span>
+          <span class="bar-delta ${side}">${deltaLabel}</span>
         </td>
       `;
       tbody.appendChild(tr);
