@@ -76,7 +76,7 @@ ELOEdge is the version that survived the cuts.
 
 ## License
 
-MIT, per-sport.
+Dual-licensed: [AGPL-3.0-or-later](LICENSE), or a [commercial license](COMMERCIAL.md) for use without the AGPL's source-disclosure obligations. Contact: mechapip@mechapip.com
 
 ## Credits
 
